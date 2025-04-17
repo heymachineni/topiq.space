@@ -812,6 +812,29 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
     })
   };
   
+  // Filter out articles without thumbnails - skip articles with no images
+  useEffect(() => {
+    if (articles.length > 0 && currentArticle && !currentArticle.thumbnail?.source) {
+      // If current article has no image, find the next one with an image
+      const nextArticleWithImage = articles.findIndex((article, index) => 
+        index > currentIndex && article.thumbnail?.source
+      );
+      
+      if (nextArticleWithImage !== -1) {
+        setCurrentIndex(nextArticleWithImage);
+      } else {
+        // If no articles with images ahead, look behind
+        const prevArticleWithImage = [...articles].reverse().findIndex((article, idx) => 
+          (articles.length - 1 - idx) < currentIndex && article.thumbnail?.source
+        );
+        
+        if (prevArticleWithImage !== -1) {
+          setCurrentIndex(articles.length - 1 - prevArticleWithImage);
+        }
+      }
+    }
+  }, [currentIndex, articles, currentArticle]);
+  
   // Update loading state to match the podcast loading style
   if (isLoading && articles.length === 0) {
     return (
@@ -1050,6 +1073,7 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
             {/* Content container - update to include image descriptions when relevant */}
             <motion.div 
               className="absolute bottom-0 left-0 right-0 px-6 py-7 z-20 bg-black/30 backdrop-blur-md"
+              style={{ paddingBottom: 'calc(1.75rem + 40px)' }}
               initial={{ opacity: 0, y: 20 }}
               animate={{ 
                 opacity: 1, 
@@ -1081,7 +1105,7 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
               <div className="flex items-start justify-between relative">
                 <div className="flex-1 pr-4">
                   {/* Article title */}
-                  <h2 className="text-4xl font-bold font-garamond mb-0.5 pr-16 text-white" style={{ fontSize: '24px' }}>
+                  <h2 className="text-4xl font-bold font-garamond mb-0.5 pr-16 text-white" style={{ fontSize: '24px', lineHeight: '1.2' }}>
                     {currentArticle.title}
                   </h2>
                   
@@ -1176,40 +1200,18 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
         )}
       </AnimatePresence>
       
-      {/* Add swipe controls for mobile */}
+      {/* Add swipe controls for mobile (invisible) */}
       <div className="fixed inset-0 pointer-events-none z-10 flex">
         <div 
-          className="h-full w-1/2 pointer-events-auto opacity-0 active:bg-white/5 touch-manipulation"
+          className="h-full w-1/2 pointer-events-auto opacity-0 touch-manipulation"
           onClick={goToPrevious}
           style={{ touchAction: 'manipulation' }}
         />
         <div 
-          className="h-full w-1/2 pointer-events-auto opacity-0 active:bg-white/5 touch-manipulation"
+          className="h-full w-1/2 pointer-events-auto opacity-0 touch-manipulation"
           onClick={goToNext}
           style={{ touchAction: 'manipulation' }}
         />
-      </div>
-      
-      {/* Mobile navigation buttons - always visible on mobile */}
-      <div className="fixed bottom-24 left-0 right-0 flex justify-between px-4 z-20 md:hidden">
-        <button 
-          className="w-12 h-12 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center text-white/80 border border-white/20"
-          onClick={goToPrevious}
-          disabled={currentIndex <= 0 || isNavigationLocked}
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-          </svg>
-        </button>
-        <button 
-          className="w-12 h-12 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center text-white/80 border border-white/20"
-          onClick={goToNext}
-          disabled={currentIndex >= articles.length - 1 || isNavigationLocked}
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-          </svg>
-        </button>
       </div>
       
       {/* About modal with improved structure */}
