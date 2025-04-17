@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="icon" href="%PUBLIC_URL%/favicon.ico" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#000000" />
+    <meta
+      name="description"
+      content="topiq.space - Explore Knowledge, News, Trends & Podcasts"
+    />
+    <link rel="apple-touch-icon" href="%PUBLIC_URL%/logo192.png" />
+    <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <!-- Add Space Grotesk for body text -->
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Serif Fonts for headings -->
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;0,800;0,900;1,400;1,500;1,600;1,700;1,800;1,900&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400;1,500;1,600;1,700;1,800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;0,700;1,300;1,400;1,500;1,600;1,700&display=swap" rel="stylesheet">
+    <title>topiq.space | Explore Knowledge, News, Trends & Podcasts</title>
+    <!-- Prevent CSS SecurityError -->
+    <script>
+      // More robust handling for cross-origin style errors
+      window.addEventListener('error', function(event) {
+        if (
+          event && 
+          event.message && 
+          (event.message.includes('Failed to read the \'cssRules\'') || 
+           event.message.includes('Cannot access rules'))
+        ) {
+          // Prevent the error from bubbling up
+          event.stopImmediatePropagation();
+          event.preventDefault();
+          return true;
+        }
+      }, true);
+
+      // Also patch console.error
+      const originalError = console.error;
+      console.error = function() {
+        if (
+          arguments[0] && 
+          typeof arguments[0] === 'string' && 
+          (arguments[0].includes('Failed to read the \'cssRules\' property') ||
+           arguments[0].includes('Cannot access rules'))
+        ) {
+          // Suppress the specific SecurityError we're trying to fix
+          return;
+        }
+        // Pass through all other errors unchanged
+        return originalError.apply(console, arguments);
+      };
+    </script>
+  </head>
+  <body class="font-space">
+    <noscript>You need to enable JavaScript to run this app.</noscript>
+    <div id="root"></div>
+  </body>
+</html> 
