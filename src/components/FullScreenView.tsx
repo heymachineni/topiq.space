@@ -1132,7 +1132,7 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
 
             {/* Content container with increased bottom padding for mobile (76px total) */}
             <motion.div 
-              className="absolute bottom-0 left-0 right-0 px-6 py-7 z-20 bg-black/30 backdrop-blur-md sm:pb-[calc(1.75rem+76px)] lg:pb-10"
+              className="absolute bottom-0 left-0 right-0 px-6 py-7 z-20 bg-black/30 backdrop-blur-md"
               style={{ paddingBottom: 'calc(1.75rem + 76px)' }}
               initial={{ opacity: 0, y: 20 }}
               animate={{ 
@@ -1194,7 +1194,7 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
                   {/* Read more button */}
                   <button 
                     onClick={handleReadMore}
-                    className="inline-flex items-center text-white font-space hover:text-gray-300 transition mt-2"
+                    className="inline-flex items-center text-white font-space hover:text-gray-300 transition mt-2 md:mt-10" 
                   >
                     <span className="mr-2">
                       {getReadMoreButtonText(currentArticle.source)}

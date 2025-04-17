@@ -131,45 +131,26 @@ const PodcastView: React.FC<PodcastViewProps> = ({ onRefresh, tabNavigator, onPl
   // Load famous podcaster episodes
   const loadFamousPodcaster = async (podcasterId: string, searchTerm: string) => {
     try {
-      // Add more specific search parameters to get the exact podcasts
-      const specificTerms = {
-        'lexFridman': 'lex fridman podcast',
-        'joeRogan': 'joe rogan experience jre',
-        'hubermanLab': 'huberman lab podcast'
-      };
-      
-      const actualSearchTerm = specificTerms[podcasterId as keyof typeof specificTerms] || searchTerm;
+      console.log(`Loading ${podcasterId} podcasts with search term: ${searchTerm}`);
       
       const response = await fetch(
-        `https://itunes.apple.com/search?term=${encodeURIComponent(actualSearchTerm)}&entity=podcast&limit=5&attribute=titleTerm`
+        `https://itunes.apple.com/search?term=${encodeURIComponent(searchTerm)}&entity=podcast&limit=1`
       );
       const data = await response.json();
       
+      console.log(`Found ${data.results?.length || 0} podcast results for ${searchTerm}`);
+      
       if (data.results.length > 0) {
-        // Find the right podcast by exact name match or closest match
-        let podcast = data.results[0]; // Default to first result
-        
-        // Try to find exact match if possible
-        const exactMatch = data.results.find((p: any) => {
-          const name = p.collectionName.toLowerCase();
-          return (
-            (podcasterId === 'lexFridman' && name.includes('lex fridman')) || 
-            (podcasterId === 'joeRogan' && name.includes('joe rogan experience')) || 
-            (podcasterId === 'hubermanLab' && name.includes('huberman lab'))
-          );
-        });
-        
-        if (exactMatch) {
-          podcast = exactMatch;
-        }
-        
-        const podcastId = podcast.collectionId;
+        const podcastId = data.results[0].collectionId;
+        console.log(`Found podcast ID: ${podcastId} for ${searchTerm}`);
         
         // Get episodes from the podcast
         const episodesResponse = await fetch(
           `https://itunes.apple.com/lookup?id=${podcastId}&entity=podcastEpisode&limit=20`
         );
         const episodesData = await episodesResponse.json();
+        
+        console.log(`Found ${episodesData.results?.length - 1 || 0} episodes for ${searchTerm}`);
         
         // Transform to our format - skip the first result as it's the podcast itself
         const episodes: PodcastEpisode[] = episodesData.results
@@ -182,34 +163,44 @@ const PodcastView: React.FC<PodcastViewProps> = ({ onRefresh, tabNavigator, onPl
             datePublished: new Date(item.releaseDate).toLocaleDateString(),
             duration: item.trackTimeMillis ? Math.floor(item.trackTimeMillis / 1000) : '',
             image: item.artworkUrl600 || item.artworkUrl100,
-            feedTitle: podcast.collectionName,
+            feedTitle: data.results[0].collectionName,
             feedUrl: item.feedUrl || '',
             audio: item.previewUrl || ''
           }));
         
+        console.log(`Successfully processed ${episodes.length} episodes for ${searchTerm}`);
         updateFamousPodcasterPodcasts(podcasterId, episodes);
       } else {
-        console.log(`No results found for ${podcasterId}, using fallback`);
+        console.log(`No podcast found for ${searchTerm}, using backup method`);
         
-        // Fallback data if iTunes API fails
-        const fallbackPodcasts: PodcastEpisode[] = Array(5).fill(null).map((_, i) => ({
-          id: Math.floor(Math.random() * 1000000) + i,
-          title: `${podcasterId === 'lexFridman' ? 'Lex Fridman Podcast' : 
-                 podcasterId === 'joeRogan' ? 'The Joe Rogan Experience' : 
-                 'Huberman Lab'} Episode ${i + 1}`,
-          description: 'Episode currently unavailable. Please check back later.',
-          url: 'https://podcasts.apple.com/',
-          datePublished: new Date().toLocaleDateString(),
-          duration: '',
-          image: `https://via.placeholder.com/600x600?text=${encodeURIComponent(podcasterId)}`,
-          feedTitle: podcasterId === 'lexFridman' ? 'Lex Fridman Podcast' : 
-                    podcasterId === 'joeRogan' ? 'The Joe Rogan Experience' : 
-                    'Huberman Lab',
-          feedUrl: '',
-          audio: ''
-        }));
+        // Backup method: use the more generic search to find episodes
+        const episodesResponse = await fetch(
+          `https://itunes.apple.com/search?term=${encodeURIComponent(searchTerm)}&entity=podcastEpisode&limit=10`
+        );
+        const episodesData = await episodesResponse.json();
         
-        updateFamousPodcasterPodcasts(podcasterId, fallbackPodcasts);
+        console.log(`Backup search found ${episodesData.results?.length || 0} episodes for ${searchTerm}`);
+        
+        if (episodesData.results?.length > 0) {
+          const episodes: PodcastEpisode[] = episodesData.results.map((item: any) => ({
+            id: item.trackId,
+            title: item.trackName,
+            description: item.description || '',
+            url: item.trackViewUrl,
+            datePublished: new Date(item.releaseDate).toLocaleDateString(),
+            duration: item.trackTimeMillis ? Math.floor(item.trackTimeMillis / 1000) : '',
+            image: item.artworkUrl600 || item.artworkUrl100,
+            feedTitle: item.collectionName || searchTerm,
+            feedUrl: item.feedUrl || '',
+            audio: item.previewUrl || ''
+          }));
+          
+          console.log(`Successfully processed ${episodes.length} episodes from backup search for ${searchTerm}`);
+          updateFamousPodcasterPodcasts(podcasterId, episodes);
+        } else {
+          console.log(`No episodes found in backup search for ${searchTerm}`);
+          updateFamousPodcasterPodcasts(podcasterId, []);
+        }
       }
     } catch (error) {
       console.error(`Error loading ${podcasterId} podcasts:`, error);

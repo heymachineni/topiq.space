@@ -296,9 +296,12 @@ export async function fetchRandomArticles(count: number = 10): Promise<Wikipedia
     // Add to the articles array
     articles.push(...results);
     
-    // First prioritize articles with good quality images using the utility function
+    // First prioritize articles with good quality images
     const articlesWithGoodImages = articles.filter(article => 
-      article.thumbnail && isGoodQualityImage(article.thumbnail)
+      article.thumbnail &&
+      article.thumbnail.source &&
+      !article.thumbnail.source.includes("question") &&
+      (!article.thumbnail.width || article.thumbnail.width >= 800)
     );
     
     console.log(`Found ${articlesWithGoodImages.length}/${articles.length} Wikipedia articles with good images`);
@@ -385,7 +388,10 @@ export async function fetchArticlesBySearch(searchTerm: string): Promise<Wikiped
       
       // First prioritize articles with good quality images
       const articlesWithGoodImages = validArticles.filter(article => 
-        article.thumbnail && isGoodQualityImage(article.thumbnail)
+        article.thumbnail &&
+        article.thumbnail.source &&
+        !article.thumbnail.source.includes("question") &&
+        (!article.thumbnail.width || article.thumbnail.width >= 800)
       );
       
       console.log(`Found ${articlesWithGoodImages.length}/${validArticles.length} search articles with good images for "${searchTerm}"`);
@@ -2474,121 +2480,4 @@ export const isGoodQualityImage = (image: any): boolean => {
   
   // Consider the image good quality if it passed all filters
   return true;
-};
-
-// Fetch high-quality images from Wikimedia Commons
-export const fetchWikimediaImages = async (topic: string, limit: number = 8): Promise<MediaOfTheDay[]> => {
-  try {
-    // Expand the topic with additional keywords for better image results
-    const enhancedQuery = `${topic} beautiful photography -icon -logo -symbol`;
-    
-    // Search Wikimedia Commons for images related to the topic
-    const searchResponse = await axios.get(
-      'https://commons.wikimedia.org/w/api.php',
-      {
-        params: {
-          action: 'query',
-          list: 'search',
-          srsearch: `${enhancedQuery} filetype:bitmap`,
-          srnamespace: 6, // File namespace (for images)
-          srlimit: limit * 3, // Request more to filter quality
-          format: 'json',
-          origin: '*'
-        }
-      }
-    );
-    
-    if (!searchResponse.data.query?.search?.length) {
-      console.log(`No images found for topic: ${topic}`);
-      return [];
-    }
-    
-    // Get file details for each search result
-    const filePromises = searchResponse.data.query.search.map(async (result: any) => {
-      const title = result.title;
-      
-      // Get image info with high resolution
-      const imageResponse = await axios.get(
-        'https://commons.wikimedia.org/w/api.php',
-        {
-          params: {
-            action: 'query',
-            titles: title,
-            prop: 'imageinfo',
-            iiprop: 'url|extmetadata|size',
-            iiurlwidth: 2400, // Request high resolution images
-            format: 'json',
-            origin: '*'
-          }
-        }
-      );
-      
-      const pages = imageResponse.data.query?.pages || {};
-      const pageId = Object.keys(pages)[0];
-      
-      if (pageId === '-1' || !pages[pageId].imageinfo || !pages[pageId].imageinfo.length) {
-        return null;
-      }
-      
-      const imageInfo = pages[pageId].imageinfo[0];
-      const metadata = imageInfo.extmetadata || {};
-      
-      // Create enhanced image description
-      const description = [
-        metadata.ImageDescription?.value ? 
-          metadata.ImageDescription.value.replace(/<[^>]*>/g, '') : '',
-        metadata.Artist?.value ? 
-          `By: ${metadata.Artist.value.replace(/<[^>]*>/g, '')}` : ''
-      ].filter(Boolean).join('\n');
-      
-      // Check image quality criteria
-      if (imageInfo.width && imageInfo.height) {
-        // Skip very small images
-        if (imageInfo.width < 1000 || imageInfo.height < 600) {
-          return null;
-        }
-        
-        // Skip square or nearly square images (likely logos or icons)
-        if (Math.abs(imageInfo.width - imageInfo.height) < 100 && imageInfo.width < 600) {
-          return null;
-        }
-      }
-      
-      return {
-        title: title.replace('File:', ''),
-        description: description || `Image related to ${topic}`,
-        url: imageInfo.url,
-        thumbUrl: imageInfo.thumburl,
-        width: imageInfo.width,
-        height: imageInfo.height,
-        isVideo: false
-      };
-    });
-    
-    const results = await Promise.all(filePromises);
-    const validResults = results.filter(Boolean) as MediaOfTheDay[];
-    
-    // Sort results prioritizing landscape images for better gallery display
-    const sortedResults = validResults.sort((a, b) => {
-      // Calculate aspect ratios
-      const aRatio = a.width && a.height ? a.width / a.height : 1;
-      const bRatio = b.width && b.height ? b.width / b.height : 1;
-      
-      // Prefer landscape oriented images (ratio > 1) over portrait
-      const aIsLandscape = aRatio > 1.2;
-      const bIsLandscape = bRatio > 1.2;
-      
-      if (aIsLandscape && !bIsLandscape) return -1;
-      if (!aIsLandscape && bIsLandscape) return 1;
-      
-      // For similar orientations, prefer wider images
-      return bRatio - aRatio;
-    });
-    
-    console.log(`Found ${sortedResults.length} quality images for topic: ${topic}`);
-    return sortedResults.slice(0, limit);
-  } catch (error) {
-    console.error('Error fetching Wikimedia images:', error);
-    return [];
-  }
 };
