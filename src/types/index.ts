@@ -53,6 +53,7 @@ export interface WikipediaArticle {
   lastViewedAt?: number;
   savedAt?: number;
   viewedAt?: string; // For backward compatibility
+  fetchTime?: string; // Timestamp when the article was fetched
 }
 
 // App state types
