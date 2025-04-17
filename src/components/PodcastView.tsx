@@ -376,7 +376,11 @@ const PodcastView: React.FC<PodcastViewProps> = ({ onRefresh, tabNavigator, onPl
             src={podcast.image} 
             alt={podcast.title} 
             className="w-full h-full object-cover"
+            loading="lazy"
+            decoding="async"
+            crossOrigin="anonymous"
             onError={(e) => {
+              console.log('Image load error, using fallback', podcast.title);
               (e.target as HTMLImageElement).src = 'https://via.placeholder.com/300x300?text=Podcast';
             }}
           />
@@ -606,7 +610,11 @@ const PodcastView: React.FC<PodcastViewProps> = ({ onRefresh, tabNavigator, onPl
                       src={podcast.image} 
                       alt={podcast.title}
                       className="w-16 h-16 rounded-md object-cover mr-3 flex-shrink-0"
+                      loading="lazy"
+                      decoding="async"
+                      crossOrigin="anonymous"
                       onError={(e) => {
+                        console.log('Search result image load error, using fallback', podcast.title);
                         (e.target as HTMLImageElement).src = 'https://via.placeholder.com/64?text=🎙️';
                       }}
                     />

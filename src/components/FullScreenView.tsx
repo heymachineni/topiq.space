@@ -246,7 +246,11 @@ const PodcastModal = ({
                       src={episode.image} 
                       alt={episode.feedTitle} 
                       className="w-full h-full object-cover rounded-lg"
+                      loading="lazy"
+                      decoding="async"
+                      crossOrigin="anonymous"
                       onError={(e) => {
+                        console.log('Modal image load error, using fallback', episode.title);
                         (e.target as HTMLImageElement).src = 'https://via.placeholder.com/96x96?text=Podcast';
                       }}
                     />
@@ -330,6 +334,10 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
   const loadingMoreRef = useRef(false);
   const tapTimerRef = useRef<number | null>(null);
   const unlockScrollRef = useRef<(() => void) | null>(null);
+  
+  // Add touch tracking refs for mobile swipe detection
+  const touchStartY = useRef<number | null>(null);
+  const touchEndY = useRef<number | null>(null);
   
   // State for double tap
   const [lastTapTime, setLastTapTime] = useState(0);
@@ -907,8 +915,43 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
       onWheel={handleWheel}
       style={{ 
         WebkitOverflowScrolling: 'touch',
-        overscrollBehavior: 'none',
-        touchAction: 'none'
+        overscrollBehavior: 'contain',
+        touchAction: 'pan-y'
+      }}
+      onTouchStart={(e) => {
+        // Record starting touch position for swipe detection
+        if (e.touches && e.touches.length === 1) {
+          const touch = e.touches[0];
+          touchStartY.current = touch.clientY;
+        }
+      }}
+      onTouchEnd={(e) => {
+        // If we have valid touch start and end positions, determine if it was a swipe
+        if (touchStartY.current !== null && touchEndY.current !== null) {
+          const deltaY = touchEndY.current - touchStartY.current;
+          
+          // Threshold for considering it a swipe (adjust as needed)
+          if (Math.abs(deltaY) > 50) {
+            if (deltaY > 0) {
+              // Swipe down - go to previous
+              goToPrevious();
+            } else {
+              // Swipe up - go to next
+              goToNext();
+            }
+          }
+          
+          // Reset values
+          touchStartY.current = null;
+          touchEndY.current = null;
+        }
+      }}
+      onTouchMove={(e) => {
+        // Update current touch position
+        if (e.touches && e.touches.length === 1) {
+          const touch = e.touches[0];
+          touchEndY.current = touch.clientY;
+        }
       }}
     >
       {/* Fixed header at the top */}
@@ -1136,13 +1179,37 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
       {/* Add swipe controls for mobile */}
       <div className="fixed inset-0 pointer-events-none z-10 flex">
         <div 
-          className="h-full w-1/2 pointer-events-auto opacity-0"
+          className="h-full w-1/2 pointer-events-auto opacity-0 active:bg-white/5 touch-manipulation"
           onClick={goToPrevious}
+          style={{ touchAction: 'manipulation' }}
         />
         <div 
-          className="h-full w-1/2 pointer-events-auto opacity-0"
+          className="h-full w-1/2 pointer-events-auto opacity-0 active:bg-white/5 touch-manipulation"
           onClick={goToNext}
+          style={{ touchAction: 'manipulation' }}
         />
+      </div>
+      
+      {/* Mobile navigation buttons - always visible on mobile */}
+      <div className="fixed bottom-24 left-0 right-0 flex justify-between px-4 z-20 md:hidden">
+        <button 
+          className="w-12 h-12 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center text-white/80 border border-white/20"
+          onClick={goToPrevious}
+          disabled={currentIndex <= 0 || isNavigationLocked}
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          </svg>
+        </button>
+        <button 
+          className="w-12 h-12 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center text-white/80 border border-white/20"
+          onClick={goToNext}
+          disabled={currentIndex >= articles.length - 1 || isNavigationLocked}
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+        </button>
       </div>
       
       {/* About modal with improved structure */}
