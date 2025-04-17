@@ -1095,7 +1095,8 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
                 <img
                   src={currentArticle.thumbnail.source}
                   alt=""
-                  className="absolute inset-0 w-full h-full object-cover opacity-40 blur-sm"
+                  className="absolute inset-0 w-full h-full object-cover blur-sm"
+                  style={{ opacity: 1 }}
                 />
               ) : (
                 /* Without thumbnail - use gradient and emoji */
@@ -1111,7 +1112,7 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
                   </div>
                 </div>
               )}
-              <div className="absolute inset-0 bg-gradient-to-t from-black via-black/70 to-transparent" />
+              <div className="absolute inset-0 bg-gradient-to-t from-black via-black/60 to-transparent" />
             </motion.div>
 
             {/* Content container with increased bottom padding for mobile (76px total) */}
