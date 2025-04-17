@@ -22,13 +22,14 @@ const MAX_CACHED_ARTICLES = 100; // Maximum number of articles to keep in cache
 
 // Source distribution for a balanced content mix
 const SOURCES_CONFIG: Record<ContentSource, { weight: number }> = {
-  'wikipedia': { weight: 20 },    // 20% Wikipedia
-  'wikievents': { weight: 20 },   // 20% Wikipedia Current Events
-  'rss': { weight: 20 },          // 20% RSS Feeds
-  'reddit': { weight: 20 },       // 20% Reddit
-  'onthisday': { weight: 10 },    // 10% On This Day
-  'oksurf': { weight: 10 },       // 10% OK Surf
-  'hackernews': { weight: 0 }     // 0% Hacker News (keeping for backward compatibility)
+  'wikipedia': { weight: 15 },    // 15% Wikipedia
+  'wikievents': { weight: 10 },   // 10% Wikipedia Current Events
+  'rss': { weight: 15 },          // 15% RSS Feeds
+  'reddit': { weight: 10 },       // 10% Reddit
+  'onthisday': { weight: 5 },     // 5% On This Day
+  'oksurf': { weight: 15 },       // 15% OK Surf
+  'hackernews': { weight: 15 },   // 15% Hacker News
+  'movie': { weight: 15 }         // 15% Movie & TV data
 };
 
 // Helper to get a random integer in a range
@@ -53,7 +54,8 @@ export const useWikipediaArticles = (initialCount: number = 10) => {
     reddit: 0,
     onthisday: 0,
     oksurf: 0,
-    hackernews: 0
+    hackernews: 0,
+    movie: 0
   });
   
   // Update source counts in distribution
@@ -65,7 +67,8 @@ export const useWikipediaArticles = (initialCount: number = 10) => {
       reddit: 0,
       onthisday: 0,
       oksurf: 0,
-      hackernews: 0
+      hackernews: 0,
+      movie: 0
     };
     
     articleList.forEach(article => {

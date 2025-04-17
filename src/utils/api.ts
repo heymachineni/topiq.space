@@ -163,6 +163,30 @@ export async function fetchRandomWikipediaArticle(): Promise<WikipediaArticle> {
   
   const fetchFn = async () => {
     try {
+      // First attempt to get a featured article with image
+      try {
+        // Try to get a featured article first (these usually have better content and images)
+        const featuredResponse = await axios.get('https://en.wikipedia.org/api/rest_v1/page/featured/today');
+        if (featuredResponse.data && featuredResponse.data.tfa) {
+          const data = featuredResponse.data.tfa;
+          
+          // Convert thumbnail to high-res
+          const highResThumbnail = getHighResImage(data.thumbnail);
+          
+          return {
+            pageid: data.pageid,
+            title: data.title,
+            extract: data.extract || data.description,
+            extract_html: data.extract_html,
+            thumbnail: highResThumbnail,
+            description: data.description,
+            source: 'wikipedia' as ContentSource
+          };
+        }
+      } catch (featuredError) {
+        console.log('Could not fetch featured article, falling back to random:', featuredError);
+      }
+      
       // Use the official Wikipedia REST API for random summary
       const response = await axios.get('https://en.wikipedia.org/api/rest_v1/page/random/summary');
       const data = response.data;
@@ -174,6 +198,7 @@ export async function fetchRandomWikipediaArticle(): Promise<WikipediaArticle> {
         pageid: data.pageid,
         title: data.title,
         extract: data.extract,
+        extract_html: data.extract_html,
         thumbnail: highResThumbnail,
         description: data.description,
         source: 'wikipedia' as ContentSource
@@ -190,16 +215,27 @@ export async function fetchRandomWikipediaArticle(): Promise<WikipediaArticle> {
 
 export async function fetchRandomArticles(count: number = 10): Promise<WikipediaArticle[]> {
   try {
-    const articles: WikipediaArticle[] = [];
+    // Request extra articles to allow for quality filtering
+    const requestCount = Math.ceil(count * 1.5);
     
     // Fetch articles in parallel
-    const promises = Array(count).fill(null).map(() => fetchRandomWikipediaArticle());
+    const articles: WikipediaArticle[] = [];
+    const promises = Array(requestCount).fill(null).map(() => fetchRandomWikipediaArticle());
     const results = await Promise.all(promises);
     
     // Add to the articles array
     articles.push(...results);
     
-    return articles;
+    // Apply quality filtering to ensure we get the best articles
+    const highQualityArticles = filterHighQualityArticles(articles);
+    
+    // If we have more articles than requested after filtering, return only what was asked for
+    if (highQualityArticles.length > count) {
+      return highQualityArticles.slice(0, count);
+    }
+    
+    // Otherwise return all high quality articles we found
+    return highQualityArticles;
   } catch (error) {
     console.error('Error fetching random articles:', error);
     throw error;
@@ -923,6 +959,97 @@ export async function fetchWikipediaCurrentEvents(count: number = 5): Promise<Wi
   return await getFromCacheOrFetch(cacheKey, fetchFn);
 }
 
+// Article quality scoring - gives a score based on content quality
+export const calculateArticleQualityScore = (article: WikipediaArticle): number => {
+  if (!article) return 0;
+  
+  let score = 0;
+  
+  // Score based on having a thumbnail image
+  if (article.thumbnail && article.thumbnail.source) {
+    score += 30; // Give significant weight to having an image
+    
+    // Higher score for larger images
+    if (article.thumbnail.width && article.thumbnail.height) {
+      // Score boost for high-resolution images
+      const area = article.thumbnail.width * article.thumbnail.height;
+      if (area > 250000) { // Large image (500x500+)
+        score += 15;
+      } else if (area > 90000) { // Medium image (300x300+)
+        score += 10;
+      } else if (area > 40000) { // Small image (200x200+)
+        score += 5;
+      }
+    }
+  }
+  
+  // Score based on having a good extract (content)
+  if (article.extract) {
+    // Basic points for having any content
+    score += 10;
+    
+    // More points for longer, substantial content
+    const wordCount = article.extract.split(/\s+/).length;
+    if (wordCount > 200) { // Very detailed
+      score += 15;
+    } else if (wordCount > 100) { // Good detail
+      score += 10;
+    } else if (wordCount > 50) { // Moderate detail
+      score += 5;
+    }
+    
+    // Penalize very short extracts
+    if (wordCount < 20) {
+      score -= 10;
+    }
+    
+    // Bonus for having HTML-formatted content (usually more detailed)
+    if (article.extract_html) {
+      score += 5;
+    }
+  }
+  
+  // Score based on having a good description
+  if (article.description && article.description.length > 10) {
+    score += 5;
+  }
+  
+  // Score boost for Wikipedia articles (generally higher quality content)
+  if (article.source === 'wikipedia') {
+    score += 5;
+  }
+  
+  return score;
+};
+
+// Filter articles based on quality score
+export const filterHighQualityArticles = (articles: WikipediaArticle[], minQualityScore: number = 30): WikipediaArticle[] => {
+  if (!articles || !Array.isArray(articles)) return articles;
+  
+  // Calculate scores for all articles
+  const articlesWithScores = articles.map(article => ({
+    article,
+    score: calculateArticleQualityScore(article)
+  }));
+  
+  // Filter to only high-quality articles
+  const highQualityArticles = articlesWithScores
+    .filter(item => item.score >= minQualityScore)
+    .map(item => item.article);
+  
+  // If we filtered too aggressively, return at least some articles
+  if (highQualityArticles.length < articles.length * 0.3) {
+    // Sort by score and take the top 30%
+    const sortedArticles = articlesWithScores
+      .sort((a, b) => b.score - a.score)
+      .map(item => item.article);
+      
+    return sortedArticles.slice(0, Math.max(Math.ceil(articles.length * 0.3), 3));
+  }
+  
+  return highQualityArticles;
+};
+
 // ========== COMBINED API ==========
 export const fetchMultiSourceArticles = async (
   sourceRequests: Partial<Record<ContentSource, number>>
@@ -968,7 +1095,7 @@ export const fetchMultiSourceArticles = async (
     );
   }
   
-  // Hacker News (kept for backward compatibility)
+  // Hacker News
   if (sourceRequests.hackernews && sourceRequests.hackernews > 0) {
     promises.push(
       fetchHackerNewsStories(sourceRequests.hackernews)
@@ -995,14 +1122,30 @@ export const fetchMultiSourceArticles = async (
     );
   }
   
+  // Movies & TV Shows
+  if (sourceRequests.movie && sourceRequests.movie > 0) {
+    promises.push(
+      fetchTrendingMovies(sourceRequests.movie)
+        .then(articles => allArticles.push(...articles))
+        .catch(err => console.error('Error fetching Movie/TV data:', err))
+    );
+  }
+  
   // Wait for all fetches to complete
   await Promise.all(promises);
   
   // Apply high resolution image optimization to all articles
   const optimizedArticles = optimizeArticleImagesArray(allArticles);
   
+  // Apply quality filtering - prioritize articles with good content and images
+  // Fetch more articles than needed initially to allow filtering
+  const highQualityArticles = filterHighQualityArticles(optimizedArticles);
+  
+  // Log quality metrics
+  console.log(`Article quality filtering: ${highQualityArticles.length}/${optimizedArticles.length} articles passed quality check`);
+  
   // Shuffle the articles to mix sources
-  return shuffleArray(optimizedArticles);
+  return shuffleArray(highQualityArticles);
 };
 
 // Media API Integration - Wikimedia Commons and NASA
@@ -1767,3 +1910,160 @@ export const optimizeArticleImagesArray = (articles: WikipediaArticle[]): Wikipe
   if (!articles || !Array.isArray(articles)) return articles;
   return articles.map(article => optimizeArticleImages(article));
 }; 
+
+// ========== MOVIE/SHOW API (Wikidata) ==========
+// Get trending movies and shows from Wikidata (open data)
+export async function fetchTrendingMovies(count: number = 5): Promise<WikipediaArticle[]> {
+  const cacheKey = 'wikidata_movies';
+  
+  const fetchFn = async () => {
+    try {
+      // Wikidata SPARQL query to get popular/well-known movies
+      const sparqlQuery = `
+        SELECT ?film ?filmLabel ?description ?image ?date ?imdbId WHERE {
+          ?film wdt:P31 wd:Q11424.
+          ?film wdt:P1411 ?award.
+          ?film wdt:P577 ?date.
+          OPTIONAL { ?film wdt:P345 ?imdbId. }
+          OPTIONAL { ?film wdt:P18 ?image. }
+          OPTIONAL { ?film schema:description ?description. FILTER(LANG(?description) = "en"). }
+          SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
+        }
+        ORDER BY DESC(?date)
+        LIMIT 30
+      `;
+      
+      const url = 'https://query.wikidata.org/sparql';
+      const response = await axios.get(url, {
+        params: {
+          query: sparqlQuery,
+          format: 'json'
+        },
+        headers: {
+          'Accept': 'application/sparql-results+json',
+          'User-Agent': 'WikiApp/1.0'
+        }
+      });
+      
+      const results = response.data.results.bindings;
+      
+      // Convert to WikipediaArticle format
+      const articles = results.map((movie: any) => {
+        const title = movie.filmLabel?.value || 'Unknown Movie';
+        const extract = movie.description?.value || `A film titled "${title}"`;
+        const year = movie.date?.value ? new Date(movie.date.value).getFullYear() : '';
+        const wikidataId = movie.film.value.split('/').pop();
+        
+        // Format thumbnail URL
+        let thumbnailUrl = '';
+        if (movie.image?.value) {
+          // Get proper Commons image URL
+          const filename = movie.image.value.split('/').pop();
+          thumbnailUrl = `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(filename)}?width=500`;
+        }
+        
+        return {
+          pageid: parseInt(wikidataId.replace('Q', ''), 10),
+          title: title,
+          extract: extract,
+          thumbnail: thumbnailUrl ? { 
+            source: thumbnailUrl,
+            width: 500,
+            height: 750
+          } : undefined,
+          description: `${year ? year + ' • ' : ''}Film`,
+          source: 'movie' as ContentSource,
+          url: `https://www.wikidata.org/wiki/${wikidataId}`
+        };
+      });
+      
+      // Filter for articles with thumbnails and shuffle to get a variety
+      const withImages = articles.filter((a: WikipediaArticle) => a.thumbnail?.source);
+      const shuffled = withImages.concat(articles.filter((a: WikipediaArticle) => !a.thumbnail?.source))
+        .slice(0, Math.max(count * 2, 10));
+        
+      return shuffled.slice(0, count);
+    } catch (error) {
+      console.error('Error fetching movie data from Wikidata:', error);
+      return createMockMovieData(count);
+    }
+  };
+  
+  return await getFromCacheOrFetch(cacheKey, fetchFn);
+}
+
+// Fallback data for movies in case the API is down
+function createMockMovieData(count: number): WikipediaArticle[] {
+  console.log("Creating mock movie data:", count);
+  
+  const mockMovies = [
+    {
+      pageid: 12345678,
+      title: "Dune: Part Two",
+      extract: "Paul Atreides unites with Chani and the Fremen while seeking revenge against the conspirators who destroyed his family. Facing a choice between the love of his life and the fate of the universe, he must prevent a terrible future only he can foresee.",
+      thumbnail: {
+        source: "https://upload.wikimedia.org/wikipedia/en/thumb/5/58/Dune_Part_Two_poster.jpeg/320px-Dune_Part_Two_poster.jpeg",
+        width: 320,
+        height: 500
+      },
+      description: "2024 • Film",
+      source: 'movie' as ContentSource,
+      url: "https://www.wikidata.org/wiki/Q63985561"
+    },
+    {
+      pageid: 23456789,
+      title: "Oppenheimer",
+      extract: "The story of American scientist J. Robert Oppenheimer and his role in the development of the atomic bomb.",
+      thumbnail: {
+        source: "https://upload.wikimedia.org/wikipedia/en/thumb/4/4a/Oppenheimer_%28film%29.jpg/320px-Oppenheimer_%28film%29.jpg",
+        width: 320,
+        height: 500
+      },
+      description: "2023 • Film",
+      source: 'movie' as ContentSource,
+      url: "https://www.wikidata.org/wiki/Q55001181"
+    },
+    {
+      pageid: 34567890,
+      title: "Everything Everywhere All at Once",
+      extract: "A middle-aged Chinese immigrant is swept up in an insane adventure in which she alone can save existence by exploring other universes and connecting with the lives she could have led.",
+      thumbnail: {
+        source: "https://upload.wikimedia.org/wikipedia/en/1/1e/Everything_Everywhere_All_at_Once.jpg",
+        width: 320,
+        height: 500
+      },
+      description: "2022 • Film",
+      source: 'movie' as ContentSource,
+      url: "https://www.wikidata.org/wiki/Q83808505"
+    },
+    {
+      pageid: 45678901,
+      title: "Poor Things",
+      extract: "The incredible tale about the fantastical evolution of Bella Baxter, a young woman brought back to life by the brilliant and unorthodox scientist Dr. Godwin Baxter.",
+      thumbnail: {
+        source: "https://upload.wikimedia.org/wikipedia/en/f/fa/Poor_Things_%28film%29.jpg",
+        width: 320,
+        height: 500
+      },
+      description: "2023 • Film",
+      source: 'movie' as ContentSource,
+      url: "https://www.wikidata.org/wiki/Q111323779"
+    },
+    {
+      pageid: 56789012,
+      title: "Parasite",
+      extract: "Greed and class discrimination threaten the newly formed symbiotic relationship between the wealthy Park family and the destitute Kim clan.",
+      thumbnail: {
+        source: "https://upload.wikimedia.org/wikipedia/en/5/53/Parasite_%282019_film%29.png",
+        width: 320,
+        height: 500
+      },
+      description: "2019 • Film",
+      source: 'movie' as ContentSource,
+      url: "https://www.wikidata.org/wiki/Q61448040"
+    }
+  ];
+  
+  // Return a slice of the mock data up to the requested count
+  return mockMovies.slice(0, count);
+}

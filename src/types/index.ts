@@ -30,7 +30,7 @@ export interface WikipediaPage {
 }
 
 // Source types for multi-source content
-export type ContentSource = 'wikipedia' | 'onthisday' | 'hackernews' | 'oksurf' | 'reddit' | 'rss' | 'wikievents';
+export type ContentSource = 'wikipedia' | 'onthisday' | 'hackernews' | 'oksurf' | 'reddit' | 'rss' | 'wikievents' | 'movie';
 export type ArticleSource = ContentSource; // Alias for backward compatibility
 
 export interface WikipediaArticle {

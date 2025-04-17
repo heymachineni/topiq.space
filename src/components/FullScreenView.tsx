@@ -66,6 +66,12 @@ const sourceConfig: Record<ContentSource, { label: string, color: string, gradie
     color: 'from-indigo-500 to-indigo-700',
     gradientFrom: '#6366f1',
     gradientTo: '#4338ca'
+  },
+  'movie': {
+    label: 'Movie',
+    color: 'from-amber-500 to-amber-700',
+    gradientFrom: '#f59e0b',
+    gradientTo: '#d97706'
   }
 };
 
@@ -110,6 +116,11 @@ const getSourceBadge = (article: WikipediaArticle) => {
       label: 'Wikipedia',
       color: 'from-indigo-500 to-indigo-700'
     };
+  } else if (article.source === 'movie') {
+    return {
+      label: 'Movie',
+      color: 'from-amber-500 to-amber-700'
+    };
   }
   
   return {
@@ -139,10 +150,12 @@ const getArticleBackground = (article: WikipediaArticle): string | undefined => 
     oksurf: 'linear-gradient(135deg, #c2e9fb, #81d4fa)',
     reddit: 'linear-gradient(135deg, #ffcccb, #e57373)',
     rss: 'linear-gradient(135deg, #a7f3d0, #10b981)',
-    wikievents: 'linear-gradient(135deg, #c7d2fe, #6366f1)'
+    wikievents: 'linear-gradient(135deg, #c7d2fe, #6366f1)',
+    movie: 'linear-gradient(135deg, #ffd591, #f0b83f)'
   };
   
-  return gradients[source];
+  // Use type assertion to ensure TypeScript knows all sources are covered
+  return gradients[source as keyof typeof gradients] || gradients.wikipedia;
 };
 
 // Clean Hacker News extract to remove metadata and HTML tags
@@ -704,6 +717,9 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
       window.open(currentArticle.url, '_blank');
     } else if (currentArticle.source === 'rss' && currentArticle.url) {
       window.open(currentArticle.url, '_blank');
+    } else if (currentArticle.source === 'movie' && currentArticle.url) {
+      // Open IMDb page for movies
+      window.open(currentArticle.url, '_blank');
     }
   }, [currentArticle]);
   
@@ -724,6 +740,8 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
         return 'Read on Reddit';
       case 'rss':
         return 'Read on RSS';
+      case 'movie':
+        return 'Read more on Wikimedia';
       default:
         return 'Read more';
     }
@@ -886,6 +904,11 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
         return {
           gradient: 'linear-gradient(135deg, #FF512F, #DD2476)',
           emoji: '📰'
+        };
+      case 'movie':
+        return {
+          gradient: 'linear-gradient(135deg, #FFD700, #FFA500)',
+          emoji: '🎬'
         };
       default:
         return {
