@@ -813,27 +813,87 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
   };
   
   // Filter out articles without thumbnails - skip articles with no images
+  // EXCEPT for "On This Day" and "Hacker News" which use color backgrounds
   useEffect(() => {
     if (articles.length > 0 && currentArticle && !currentArticle.thumbnail?.source) {
-      // If current article has no image, find the next one with an image
-      const nextArticleWithImage = articles.findIndex((article, index) => 
-        index > currentIndex && article.thumbnail?.source
+      // Don't filter On This Day and Hacker News articles as they use colors and emojis
+      if (currentArticle.source === 'onthisday' || currentArticle.source === 'hackernews') {
+        return; // Keep these articles even without images
+      }
+      
+      // For other sources, find the next article with an image or from excluded sources
+      const nextArticleWithImageOrSpecialSource = articles.findIndex((article, index) => 
+        index > currentIndex && (
+          article.thumbnail?.source || 
+          article.source === 'onthisday' || 
+          article.source === 'hackernews'
+        )
       );
       
-      if (nextArticleWithImage !== -1) {
-        setCurrentIndex(nextArticleWithImage);
+      if (nextArticleWithImageOrSpecialSource !== -1) {
+        setCurrentIndex(nextArticleWithImageOrSpecialSource);
       } else {
         // If no articles with images ahead, look behind
-        const prevArticleWithImage = [...articles].reverse().findIndex((article, idx) => 
-          (articles.length - 1 - idx) < currentIndex && article.thumbnail?.source
+        const prevArticleWithImageOrSpecialSource = [...articles].reverse().findIndex((article, idx) => 
+          (articles.length - 1 - idx) < currentIndex && (
+            article.thumbnail?.source || 
+            article.source === 'onthisday' || 
+            article.source === 'hackernews'
+          )
         );
         
-        if (prevArticleWithImage !== -1) {
-          setCurrentIndex(articles.length - 1 - prevArticleWithImage);
+        if (prevArticleWithImageOrSpecialSource !== -1) {
+          setCurrentIndex(articles.length - 1 - prevArticleWithImageOrSpecialSource);
         }
       }
     }
   }, [currentIndex, articles, currentArticle]);
+  
+  // Function to get source-specific background and emoji
+  const getSourceBackground = (source?: ContentSource) => {
+    switch(source) {
+      case 'onthisday':
+        return {
+          gradient: 'linear-gradient(135deg, #8E2DE2, #4A00E0)',
+          emoji: '📅'
+        };
+      case 'hackernews':
+        return {
+          gradient: 'linear-gradient(135deg, #FF8008, #FFC837)',
+          emoji: '💻'
+        };
+      case 'wikipedia':
+        return {
+          gradient: 'linear-gradient(135deg, #396afc, #2948ff)',
+          emoji: '📚'
+        };
+      case 'wikievents':
+        return {
+          gradient: 'linear-gradient(135deg, #FF5F6D, #FFC371)',
+          emoji: '🌍'
+        };
+      case 'reddit':
+        return {
+          gradient: 'linear-gradient(135deg, #FF4500, #FF8C78)',
+          emoji: '👽'
+        };
+      case 'oksurf':
+        return {
+          gradient: 'linear-gradient(135deg, #00C9FF, #92FE9D)',
+          emoji: '🏄'
+        };
+      case 'rss':
+        return {
+          gradient: 'linear-gradient(135deg, #FF512F, #DD2476)',
+          emoji: '📰'
+        };
+      default:
+        return {
+          gradient: 'linear-gradient(135deg, #232526, #414345)',
+          emoji: '��'
+        };
+    }
+  };
   
   // Update loading state to match the podcast loading style
   if (isLoading && articles.length === 0) {
@@ -939,7 +999,9 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
       style={{ 
         WebkitOverflowScrolling: 'touch',
         overscrollBehavior: 'contain',
-        touchAction: 'pan-y'
+        touchAction: 'pan-y',
+        scrollBehavior: 'smooth',
+        WebkitTapHighlightColor: 'transparent'
       }}
       onTouchStart={(e) => {
         // Record starting touch position for swipe detection
@@ -1018,7 +1080,7 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
             custom={swipeDirection}
             onClick={handleTap}
           >
-            {/* Background image - simplified to show just one image */}
+            {/* Background image - handle articles without images using gradients */}
             <motion.div 
               className="absolute inset-0 w-full h-full bg-cover bg-center"
               initial={{ scale: 1.1, opacity: 0.5 }}
@@ -1028,52 +1090,34 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
                 transition: { duration: 0.8, ease: [0.16, 1, 0.3, 1] }
               }}
             >
-              {/* Single image or gradient background */}
-              {currentArticle.thumbnail ? (
-                <div className="absolute inset-0">
-                  <div 
-                    className="w-full h-full bg-cover bg-center"
-                    style={{ 
-                      backgroundImage: `url(${currentArticle.thumbnail.source})`,
-                      backgroundColor: 'rgba(0, 0, 0, 0.3)'
-                    }}
-                  >
-                    <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-black/30 opacity-70"></div>
-                  </div>
-                </div>
+              {currentArticle.thumbnail?.source ? (
+                /* With thumbnail - use the image */
+                <img
+                  src={currentArticle.thumbnail.source}
+                  alt=""
+                  className="absolute inset-0 w-full h-full object-cover opacity-40 blur-sm"
+                />
               ) : (
-                // Fallback for articles without images
+                /* Without thumbnail - use gradient and emoji */
                 <div 
-                  className="absolute inset-0 w-full h-full"
+                  className="absolute inset-0 w-full h-full flex items-center justify-center"
                   style={{ 
-                    background: getArticleBackground(currentArticle) || 'linear-gradient(135deg, #1a202c, #2d3748)'
+                    background: getSourceBackground(currentArticle.source).gradient,
+                    opacity: 0.4
                   }}
                 >
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    {currentArticle.source === 'onthisday' && (
-                      <span className="text-6xl opacity-90 drop-shadow-lg">⏳</span>
-                    )}
-                    {currentArticle.source === 'hackernews' && (
-                      <span className="text-6xl opacity-90 drop-shadow-lg">💻</span>
-                    )}
-                    {currentArticle.source === 'oksurf' && (
-                      <span className="text-6xl opacity-90 drop-shadow-lg">📰</span>
-                    )}
-                    {(!currentArticle.source || currentArticle.source === 'wikipedia') && (
-                      <span className="text-6xl opacity-90 drop-shadow-lg">📚</span>
-                    )}
+                  <div className="text-[120px] opacity-30">
+                    {getSourceBackground(currentArticle.source).emoji}
                   </div>
                 </div>
               )}
-              
-              {/* Overlay gradient for better text readability */}
-              <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-black/30 opacity-70"></div>
+              <div className="absolute inset-0 bg-gradient-to-t from-black via-black/70 to-transparent" />
             </motion.div>
 
-            {/* Content container - update to include image descriptions when relevant */}
+            {/* Content container with increased bottom padding for mobile (60px total) */}
             <motion.div 
               className="absolute bottom-0 left-0 right-0 px-6 py-7 z-20 bg-black/30 backdrop-blur-md"
-              style={{ paddingBottom: 'calc(1.75rem + 40px)' }}
+              style={{ paddingBottom: 'calc(1.75rem + 60px)' }}
               initial={{ opacity: 0, y: 20 }}
               animate={{ 
                 opacity: 1, 
