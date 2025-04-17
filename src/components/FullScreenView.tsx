@@ -690,38 +690,33 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
     }, 1200);
   }, [currentIndex, isNavigationLocked, isOnCooldown]);
   
-  // Open the Wikipedia article
-  const handleReadMore = useCallback(() => {
+  // Handle "Read More" button click
+  const handleReadMore = () => {
     if (!currentArticle) return;
     
-    // Open appropriate URL based on source
+    // Different behavior based on the article source
+    // Note: The OpenURL won't work in this environment but would work in the actual app
     if (currentArticle.source === 'hackernews' && currentArticle.url) {
       window.open(currentArticle.url, '_blank');
-    } else if (currentArticle.source === 'wikipedia' || !currentArticle.source) {
-      window.open(`https://en.wikipedia.org/wiki/${encodeURIComponent(currentArticle.title)}`, '_blank');
-    } else if (currentArticle.source === 'wikievents') {
+    } else if (currentArticle.source === 'wikipedia' || currentArticle.source === 'wikievents') {
       window.open(`https://en.wikipedia.org/wiki/${encodeURIComponent(currentArticle.title)}`, '_blank');
     } else if (currentArticle.source === 'onthisday') {
-      // Get current date for the on this day page
-      const today = new Date();
-      const month = today.getMonth() + 1; // getMonth() is 0-indexed
-      const day = today.getDate();
-      
-      // Redirect to Wikipedia's On This Day page instead of Google search
-      window.open(`https://en.wikipedia.org/wiki/Wikipedia:On_this_day/${month}_${day}`, '_blank');
+      if (currentArticle.url) {
+        window.open(currentArticle.url, '_blank');
+      } else {
+        window.open(`https://en.wikipedia.org/wiki/Wikipedia:On_this_day/${formatDate(new Date().toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' }))}`, '_blank');
+      }
     } else if (currentArticle.source === 'oksurf') {
-      // For OK.Surf, search the headline
-      const query = encodeURIComponent(currentArticle.title);
-      window.open(`https://www.google.com/search?q=${query}`, '_blank');
+      window.open(`https://www.google.com/search?q=${encodeURIComponent(currentArticle.title)}`, '_blank');
     } else if (currentArticle.source === 'reddit' && currentArticle.url) {
       window.open(currentArticle.url, '_blank');
     } else if (currentArticle.source === 'rss' && currentArticle.url) {
       window.open(currentArticle.url, '_blank');
-    } else if (currentArticle.source === 'movie' && currentArticle.url) {
-      // Open IMDb page for movies
-      window.open(currentArticle.url, '_blank');
+    } else {
+      // Fallback for any other source or missing URL
+      window.open(`https://en.wikipedia.org/wiki/${encodeURIComponent(currentArticle.title)}`, '_blank');
     }
-  }, [currentArticle]);
+  };
   
   // Get the appropriate read more button text based on article source
   const getReadMoreButtonText = useCallback((source?: ContentSource): string => {
@@ -771,21 +766,11 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
     }
   }, [currentIndex, articles]);
   
-  // Handle double tap to like
-  const handleTap = () => {
-    const now = Date.now();
-    const DOUBLE_TAP_DELAY = 300; // ms
-    
-    if (lastTapTime && (now - lastTapTime) < DOUBLE_TAP_DELAY) {
-      // Double tap detected
-      if (currentArticle) {
-        handleLike();
-        setShowLikeAnimation(true);
-        setTimeout(() => setShowLikeAnimation(false), 1000);
-      }
+  // Handle opening the podcast modal
+  const handleViewPodcasts = () => {
+    if (relatedPodcasts.length > 0) {
+      setShowPodcastModal(true);
     }
-    
-    setLastTapTime(now);
   };
   
   // Fetch related podcasts when current article changes
@@ -804,13 +789,6 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
     
     fetchRelatedPodcasts();
   }, [currentArticle]);
-  
-  // Handle opening the podcast modal
-  const handleViewPodcasts = () => {
-    if (relatedPodcasts.length > 0) {
-      setShowPodcastModal(true);
-    }
-  };
   
   // Update the animation variants for the article transitions
   const articleVariants = {
@@ -1101,7 +1079,6 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
             animate="animate"
             exit="exit"
             custom={swipeDirection}
-            onClick={handleTap}
           >
             {/* Background image - handle articles without images using gradients */}
             <motion.div 
@@ -1155,7 +1132,7 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
 
             {/* Content container with increased bottom padding for mobile (76px total) */}
             <motion.div 
-              className="absolute bottom-0 left-0 right-0 px-6 py-7 z-20 bg-black/30 backdrop-blur-md"
+              className="absolute bottom-0 left-0 right-0 px-6 py-7 z-20 bg-black/30 backdrop-blur-md sm:pb-[calc(1.75rem+76px)] lg:pb-10"
               style={{ paddingBottom: 'calc(1.75rem + 76px)' }}
               initial={{ opacity: 0, y: 20 }}
               animate={{ 
