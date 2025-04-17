@@ -1117,9 +1117,24 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
                 /* With thumbnail - use the image */
                 <img
                   src={currentArticle.thumbnail.source}
-                  alt=""
-                  className="absolute inset-0 w-full h-full object-cover blur-sm"
-                  style={{ opacity: 1 }}
+                  alt={currentArticle.title}
+                  className="absolute inset-0 w-full h-full object-cover"
+                  style={{ 
+                    opacity: 1,
+                    objectFit: 'cover',
+                    filter: 'none',
+                    WebkitFilter: 'none'
+                  }}
+                  loading="eager"
+                  decoding="async"
+                  onError={(e) => {
+                    // If image fails to load, set a gradient background
+                    const div = document.createElement('div');
+                    div.className = "absolute inset-0 w-full h-full flex items-center justify-center";
+                    div.style.background = getSourceBackground(currentArticle.source).gradient;
+                    div.innerHTML = `<div class="text-[120px] opacity-30">${getSourceBackground(currentArticle.source).emoji}</div>`;
+                    e.currentTarget.parentNode?.replaceChild(div, e.currentTarget);
+                  }}
                 />
               ) : (
                 /* Without thumbnail - use gradient and emoji */
@@ -1135,7 +1150,7 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
                   </div>
                 </div>
               )}
-              <div className="absolute inset-0 bg-gradient-to-t from-black via-black/60 to-transparent" />
+              <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-transparent" />
             </motion.div>
 
             {/* Content container with increased bottom padding for mobile (76px total) */}

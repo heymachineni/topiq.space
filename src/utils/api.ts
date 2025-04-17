@@ -96,60 +96,75 @@ export const getHighResImage = (thumbnail: any): any => {
   
   try {
     const imgSrc = thumbnail.source;
+    let newSrc = imgSrc;
+    let width = thumbnail.width;
+    let height = thumbnail.height;
 
     // Handle Wikipedia thumbnail URLs - convert /thumb/ to full resolution
-    if (imgSrc.includes('/thumb/') && imgSrc.includes('wikipedia.org')) {
-      const fullResUrl = imgSrc.replace(/\/thumb\//, '/').split('/').slice(0, -1).join('/');
-      return {
-        ...thumbnail,
-        source: fullResUrl
-      };
+    if (imgSrc.includes('/thumb/') && (imgSrc.includes('wikipedia.org') || imgSrc.includes('wikimedia.org'))) {
+      // Get full resolution image by removing thumbnail size constraint
+      newSrc = imgSrc.replace(/\/thumb\//, '/').split('/').slice(0, -1).join('/');
+      
+      // If image is already big enough, keep it as is
+      if (width && width >= 800) {
+        return thumbnail;
+      }
+      
+      // Set larger dimensions for the full-size image
+      width = width ? width * 2 : 800;
+      height = height ? height * 2 : 1200;
     }
     
-    // Handle Wikimedia Commons URLs
-    if (imgSrc.includes('wikimedia.org')) {
+    // Handle direct Wikimedia Commons URLs
+    else if (imgSrc.includes('wikimedia.org')) {
       // If URL contains a size parameter like /300px-
       if (imgSrc.match(/\/\d+px-/)) {
-        // Remove size constraints from wikimedia URLs
-        const fullResUrl = imgSrc.replace(/\/\d+px-/, '/');
-        return {
-          ...thumbnail,
-          source: fullResUrl
-        };
+        // Replace with larger size, targeting 800px minimum
+        newSrc = imgSrc.replace(/\/\d+px-/, '/800px-');
+        width = 800;
+        // Calculate height proportionally if we have original dimensions
+        if (width && height) {
+          const ratio = height / width;
+          height = Math.round(800 * ratio);
+        } else {
+          height = 1200; // Default tall rectangle
+        }
       }
     }
     
     // Handle iTunes artwork URLs - upgrade to highest resolution
-    if (imgSrc.includes('mzstatic.com')) {
+    else if (imgSrc.includes('mzstatic.com')) {
       // iTunes artwork often has dimensions in URL (e.g., 100x100)
-      const fullResUrl = imgSrc.replace(/\/\d+x\d+/, '/1200x1200');
-      return {
-        ...thumbnail,
-        source: fullResUrl
-      };
+      newSrc = imgSrc.replace(/\/\d+x\d+/, '/1200x1200');
+      width = 1200;
+      height = 1200;
     }
     
     // Handle imgur thumbnail URLs
-    if (imgSrc.includes('imgur.com')) {
+    else if (imgSrc.includes('imgur.com')) {
       // Replace thumbnail suffixes with originals
       if (imgSrc.includes('_d.') || imgSrc.includes('_t.') || imgSrc.includes('_m.') || imgSrc.includes('_l.')) {
-        const fullResUrl = imgSrc.replace(/(_[a-z])\.(jpg|png|gif)/i, '.$2');
-        return {
-          ...thumbnail,
-          source: fullResUrl
-        };
+        newSrc = imgSrc.replace(/(_[a-z])\.(jpg|png|gif)/i, '.$2');
+        width = width ? width * 2 : 800;
+        height = height ? height * 2 : 800;
       }
     }
     
     // Handle Reddit-specific resized images
-    if (imgSrc.includes('external-preview.redd.it') || imgSrc.includes('preview.redd.it')) {
+    else if (imgSrc.includes('external-preview.redd.it') || imgSrc.includes('preview.redd.it')) {
       // Reddit image previews often have width/compressions in URL params
-      const urlWithoutParams = imgSrc.split('?')[0];
-      return {
-        ...thumbnail,
-        source: urlWithoutParams
-      };
+      newSrc = imgSrc.split('?')[0];
+      width = width ? width * 2 : 800;
+      height = height ? height * 2 : 800;
     }
+    
+    // Return the enhanced image object
+    return {
+      ...thumbnail,
+      source: newSrc,
+      width: width || thumbnail.width,
+      height: height || thumbnail.height
+    };
   } catch (error) {
     console.error('Error converting thumbnail to high-res:', error);
   }
@@ -967,18 +982,45 @@ export const calculateArticleQualityScore = (article: WikipediaArticle): number 
   
   // Score based on having a thumbnail image
   if (article.thumbnail && article.thumbnail.source) {
-    score += 30; // Give significant weight to having an image
-    
-    // Higher score for larger images
-    if (article.thumbnail.width && article.thumbnail.height) {
-      // Score boost for high-resolution images
-      const area = article.thumbnail.width * article.thumbnail.height;
-      if (area > 250000) { // Large image (500x500+)
-        score += 15;
-      } else if (area > 90000) { // Medium image (300x300+)
-        score += 10;
-      } else if (area > 40000) { // Small image (200x200+)
-        score += 5;
+    // Check for low-quality image patterns
+    const imgSrc = article.thumbnail.source;
+    const isLowQuality = 
+      imgSrc.includes('thumb/') || 
+      imgSrc.includes('thumbnail') || 
+      imgSrc.includes('_small.') ||
+      imgSrc.includes('-small.') ||
+      imgSrc.includes('_thumb.') ||
+      imgSrc.includes('w200') ||
+      imgSrc.includes('width=200') ||
+      imgSrc.includes('w100') ||
+      (article.thumbnail.width && article.thumbnail.width < 300);
+      
+    if (isLowQuality) {
+      score += 10; // Give only minimal points for low quality images
+    } else {
+      score += 35; // Give significant weight to having a good image
+      
+      // Higher score for larger images
+      if (article.thumbnail.width && article.thumbnail.height) {
+        // Score boost for high-resolution images
+        const area = article.thumbnail.width * article.thumbnail.height;
+        if (area > 250000) { // Large image (500x500+)
+          score += 20;
+        } else if (area > 90000) { // Medium image (300x300+)
+          score += 15;
+        } else if (area > 40000) { // Small image (200x200+)
+          score += 5;
+        }
+      } else {
+        // If no dimensions specified but image URL suggests high quality
+        if (
+          imgSrc.includes('1200w') || 
+          imgSrc.includes('original') || 
+          imgSrc.includes('full') ||
+          imgSrc.includes('large')
+        ) {
+          score += 15;
+        }
       }
     }
   }
@@ -1000,7 +1042,7 @@ export const calculateArticleQualityScore = (article: WikipediaArticle): number 
     
     // Penalize very short extracts
     if (wordCount < 20) {
-      score -= 10;
+      score -= 15;
     }
     
     // Bonus for having HTML-formatted content (usually more detailed)
@@ -1019,11 +1061,16 @@ export const calculateArticleQualityScore = (article: WikipediaArticle): number 
     score += 5;
   }
   
+  // Score boost for movie content (typically high quality)
+  if (article.source === 'movie') {
+    score += 10;
+  }
+  
   return score;
 };
 
 // Filter articles based on quality score
-export const filterHighQualityArticles = (articles: WikipediaArticle[], minQualityScore: number = 30): WikipediaArticle[] => {
+export const filterHighQualityArticles = (articles: WikipediaArticle[], minQualityScore: number = 40): WikipediaArticle[] => {
   if (!articles || !Array.isArray(articles)) return articles;
   
   // Calculate scores for all articles
@@ -1032,19 +1079,32 @@ export const filterHighQualityArticles = (articles: WikipediaArticle[], minQuali
     score: calculateArticleQualityScore(article)
   }));
   
+  // Log detailed quality information for debugging
+  console.log("Article quality scores:", articlesWithScores.map(item => ({
+    title: item.article.title.substring(0, 30),
+    source: item.article.source,
+    score: item.score,
+    hasImage: !!item.article.thumbnail?.source,
+    imageWidth: item.article.thumbnail?.width
+  })));
+  
   // Filter to only high-quality articles
   const highQualityArticles = articlesWithScores
     .filter(item => item.score >= minQualityScore)
     .map(item => item.article);
   
+  console.log(`After filtering by score ≥ ${minQualityScore}: ${highQualityArticles.length}/${articles.length} articles`);
+  
   // If we filtered too aggressively, return at least some articles
   if (highQualityArticles.length < articles.length * 0.3) {
-    // Sort by score and take the top 30%
+    // Sort by score and take the top 40%
     const sortedArticles = articlesWithScores
       .sort((a, b) => b.score - a.score)
       .map(item => item.article);
       
-    return sortedArticles.slice(0, Math.max(Math.ceil(articles.length * 0.3), 3));
+    const result = sortedArticles.slice(0, Math.max(Math.ceil(articles.length * 0.4), 5));
+    console.log(`Fallback to top articles: returning ${result.length}`);
+    return result;
   }
   
   return highQualityArticles;
@@ -1055,78 +1115,114 @@ export const fetchMultiSourceArticles = async (
   sourceRequests: Partial<Record<ContentSource, number>>
 ): Promise<WikipediaArticle[]> => {
   const allArticles: WikipediaArticle[] = [];
+  const sourceCounts: Record<string, number> = {};
+  
+  // Request more articles than needed to allow for quality filtering
+  const multiplier = 2; // Request 2x the number of articles
   
   // Fetch from each source based on the requests
   const promises: Promise<any>[] = []; // Change to any to handle different promise return types
   
   // Wikipedia
   if (sourceRequests.wikipedia && sourceRequests.wikipedia > 0) {
+    const count = sourceRequests.wikipedia * multiplier;
     promises.push(
-      fetchRandomArticles(sourceRequests.wikipedia)
-        .then(articles => allArticles.push(...articles))
+      fetchRandomArticles(count)
+        .then(articles => {
+          allArticles.push(...articles);
+          sourceCounts['wikipedia'] = articles.length;
+        })
         .catch(err => console.error('Error fetching Wikipedia articles:', err))
     );
   }
   
   // Wikipedia Current Events Portal
   if (sourceRequests.wikievents && sourceRequests.wikievents > 0) {
+    const count = sourceRequests.wikievents * multiplier;
     promises.push(
-      fetchWikipediaCurrentEvents(sourceRequests.wikievents)
-        .then(articles => allArticles.push(...articles))
+      fetchWikipediaCurrentEvents(count)
+        .then(articles => {
+          allArticles.push(...articles);
+          sourceCounts['wikievents'] = articles.length;
+        })
         .catch(err => console.error('Error fetching Wikipedia current events:', err))
     );
   }
   
   // RSS Feeds
   if (sourceRequests.rss && sourceRequests.rss > 0) {
+    const count = sourceRequests.rss * multiplier;
     promises.push(
-      fetchRssFeeds(sourceRequests.rss)
-        .then(articles => allArticles.push(...articles))
+      fetchRssFeeds(count)
+        .then(articles => {
+          allArticles.push(...articles);
+          sourceCounts['rss'] = articles.length;
+        })
         .catch(err => console.error('Error fetching RSS feeds:', err))
     );
   }
   
   // Reddit
   if (sourceRequests.reddit && sourceRequests.reddit > 0) {
+    const count = sourceRequests.reddit * multiplier;
     promises.push(
-      fetchRedditPosts(sourceRequests.reddit)
-        .then(articles => allArticles.push(...articles))
+      fetchRedditPosts(count)
+        .then(articles => {
+          allArticles.push(...articles);
+          sourceCounts['reddit'] = articles.length;
+        })
         .catch(err => console.error('Error fetching Reddit posts:', err))
     );
   }
   
   // Hacker News
   if (sourceRequests.hackernews && sourceRequests.hackernews > 0) {
+    const count = sourceRequests.hackernews * multiplier;
     promises.push(
-      fetchHackerNewsStories(sourceRequests.hackernews)
-        .then(articles => allArticles.push(...articles))
+      fetchHackerNewsStories(count)
+        .then(articles => {
+          allArticles.push(...articles);
+          sourceCounts['hackernews'] = articles.length;
+        })
         .catch(err => console.error('Error fetching Hacker News stories:', err))
     );
   }
   
   // On This Day
   if (sourceRequests.onthisday && sourceRequests.onthisday > 0) {
+    const count = sourceRequests.onthisday * multiplier;
     promises.push(
-      fetchOnThisDayEvents(sourceRequests.onthisday)
-        .then(articles => allArticles.push(...articles))
+      fetchOnThisDayEvents(count)
+        .then(articles => {
+          allArticles.push(...articles);
+          sourceCounts['onthisday'] = articles.length;
+        })
         .catch(err => console.error('Error fetching On This Day events:', err))
     );
   }
   
   // OK Surf
   if (sourceRequests.oksurf && sourceRequests.oksurf > 0) {
+    const count = sourceRequests.oksurf * multiplier;
     promises.push(
-      fetchOkSurfNews(sourceRequests.oksurf)
-        .then(articles => allArticles.push(...articles))
+      fetchOkSurfNews(count)
+        .then(articles => {
+          allArticles.push(...articles);
+          sourceCounts['oksurf'] = articles.length;
+        })
         .catch(err => console.error('Error fetching OK Surf news:', err))
     );
   }
   
   // Movies & TV Shows
   if (sourceRequests.movie && sourceRequests.movie > 0) {
+    const count = sourceRequests.movie * multiplier;
     promises.push(
-      fetchTrendingMovies(sourceRequests.movie)
-        .then(articles => allArticles.push(...articles))
+      fetchTrendingMovies(count)
+        .then(articles => {
+          allArticles.push(...articles);
+          sourceCounts['movie'] = articles.length;
+        })
         .catch(err => console.error('Error fetching Movie/TV data:', err))
     );
   }
@@ -1137,15 +1233,76 @@ export const fetchMultiSourceArticles = async (
   // Apply high resolution image optimization to all articles
   const optimizedArticles = optimizeArticleImagesArray(allArticles);
   
+  console.log('Source distribution before filtering:', sourceCounts);
+  
   // Apply quality filtering - prioritize articles with good content and images
-  // Fetch more articles than needed initially to allow filtering
   const highQualityArticles = filterHighQualityArticles(optimizedArticles);
+  
+  // Get distribution of sources after filtering
+  const finalSourceCounts: Record<string, number> = {};
+  highQualityArticles.forEach(article => {
+    const source = article.source || 'unknown';
+    finalSourceCounts[source] = (finalSourceCounts[source] || 0) + 1;
+  });
+  
+  console.log('Source distribution after filtering:', finalSourceCounts);
   
   // Log quality metrics
   console.log(`Article quality filtering: ${highQualityArticles.length}/${optimizedArticles.length} articles passed quality check`);
   
+  // Ensure we maintain a mix of sources in the final result
+  const finalResult = balanceSourceDistribution(highQualityArticles, sourceRequests);
+  
   // Shuffle the articles to mix sources
-  return shuffleArray(highQualityArticles);
+  return shuffleArray(finalResult);
+};
+
+// Helper function to balance sources in the final result
+const balanceSourceDistribution = (articles: WikipediaArticle[], sourceRequests: Partial<Record<ContentSource, number>>): WikipediaArticle[] => {
+  // Early return if no articles or not enough to balance
+  if (!articles || articles.length <= 10) return articles;
+  
+  // Count articles by source
+  const sourceCount: Record<string, WikipediaArticle[]> = {};
+  articles.forEach(article => {
+    const source = article.source || 'unknown';
+    if (!sourceCount[source]) {
+      sourceCount[source] = [];
+    }
+    sourceCount[source].push(article);
+  });
+  
+  // Calculate the target count for each source
+  const totalRequired = Object.values(sourceRequests).reduce((sum, count) => sum + (count || 0), 0);
+  const result: WikipediaArticle[] = [];
+  
+  // Determine if we have enough articles
+  if (articles.length < totalRequired) {
+    return articles; // Not enough to balance, return all
+  }
+  
+  // Try to select according to requested distribution
+  Object.entries(sourceRequests).forEach(([source, requestedCount]) => {
+    if (!requestedCount) return;
+    
+    const available = sourceCount[source] || [];
+    const toTake = Math.min(available.length, requestedCount);
+    
+    // Take random articles from this source
+    const selected = shuffleArray([...available]).slice(0, toTake);
+    result.push(...selected);
+    
+    // Remove selected articles from the source pool
+    sourceCount[source] = available.filter(a => !selected.includes(a));
+  });
+  
+  // If we don't have enough articles yet, fill with whatever is left
+  if (result.length < totalRequired) {
+    const remaining = Object.values(sourceCount).flat();
+    result.push(...shuffleArray(remaining).slice(0, totalRequired - result.length));
+  }
+  
+  return result;
 };
 
 // Media API Integration - Wikimedia Commons and NASA
@@ -1918,19 +2075,39 @@ export async function fetchTrendingMovies(count: number = 5): Promise<WikipediaA
   
   const fetchFn = async () => {
     try {
-      // Wikidata SPARQL query to get popular/well-known movies
+      // Improved Wikidata SPARQL query to get high-quality movie data
+      // This query specifically targets films with awards, high IMDB ratings, and images
       const sparqlQuery = `
         SELECT ?film ?filmLabel ?description ?image ?date ?imdbId WHERE {
           ?film wdt:P31 wd:Q11424.
-          ?film wdt:P1411 ?award.
           ?film wdt:P577 ?date.
+          ?film wdt:P18 ?image.
           OPTIONAL { ?film wdt:P345 ?imdbId. }
-          OPTIONAL { ?film wdt:P18 ?image. }
           OPTIONAL { ?film schema:description ?description. FILTER(LANG(?description) = "en"). }
+          
+          # Ensure quality content by requiring one of these quality markers
+          {
+            # Has received an award
+            ?film wdt:P166 ?award.
+          } UNION {
+            # Or has high IMDb rating (7+)
+            ?film wdt:P345 ?id.
+            ?film p:P444 ?imdbRatingStatement.
+            ?imdbRatingStatement ps:P444 ?rating.
+            FILTER(?rating >= 7)
+          } UNION {
+            # Or is considered a notable film (featured in lists/collections)
+            ?film wdt:P1411 ?nominatedFor.
+          } UNION {
+            # Or was released recently (last 3 years)
+            BIND(YEAR(NOW()) - 3 as ?cutoffYear)
+            FILTER(YEAR(?date) >= ?cutoffYear)
+          }
+          
           SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
         }
         ORDER BY DESC(?date)
-        LIMIT 30
+        LIMIT 50
       `;
       
       const url = 'https://query.wikidata.org/sparql';
@@ -1945,7 +2122,14 @@ export async function fetchTrendingMovies(count: number = 5): Promise<WikipediaA
         }
       });
       
+      if (!response.data || !response.data.results || !response.data.results.bindings || 
+          response.data.results.bindings.length === 0) {
+        console.error('No movie data found from Wikidata');
+        return createMockMovieData(count);
+      }
+      
       const results = response.data.results.bindings;
+      console.log(`Fetched ${results.length} movies from Wikidata`);
       
       // Convert to WikipediaArticle format
       const articles = results.map((movie: any) => {
@@ -1954,12 +2138,12 @@ export async function fetchTrendingMovies(count: number = 5): Promise<WikipediaA
         const year = movie.date?.value ? new Date(movie.date.value).getFullYear() : '';
         const wikidataId = movie.film.value.split('/').pop();
         
-        // Format thumbnail URL
+        // Format thumbnail URL - request a larger size directly
         let thumbnailUrl = '';
         if (movie.image?.value) {
           // Get proper Commons image URL
           const filename = movie.image.value.split('/').pop();
-          thumbnailUrl = `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(filename)}?width=500`;
+          thumbnailUrl = `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(filename)}?width=800`;
         }
         
         return {
@@ -1968,8 +2152,8 @@ export async function fetchTrendingMovies(count: number = 5): Promise<WikipediaA
           extract: extract,
           thumbnail: thumbnailUrl ? { 
             source: thumbnailUrl,
-            width: 500,
-            height: 750
+            width: 800,
+            height: 1200
           } : undefined,
           description: `${year ? year + ' • ' : ''}Film`,
           source: 'movie' as ContentSource,
@@ -1977,12 +2161,17 @@ export async function fetchTrendingMovies(count: number = 5): Promise<WikipediaA
         };
       });
       
-      // Filter for articles with thumbnails and shuffle to get a variety
+      // Filter for articles with thumbnails
       const withImages = articles.filter((a: WikipediaArticle) => a.thumbnail?.source);
-      const shuffled = withImages.concat(articles.filter((a: WikipediaArticle) => !a.thumbnail?.source))
-        .slice(0, Math.max(count * 2, 10));
-        
-      return shuffled.slice(0, count);
+      
+      if (withImages.length < count) {
+        console.warn(`Only found ${withImages.length} movies with images, using mock data to supplement`);
+        const mockMovies = createMockMovieData(count - withImages.length);
+        return [...withImages, ...mockMovies].slice(0, count);
+      }
+      
+      // Return a random selection from the filtered results
+      return shuffleArray(withImages).slice(0, count);
     } catch (error) {
       console.error('Error fetching movie data from Wikidata:', error);
       return createMockMovieData(count);
