@@ -690,33 +690,38 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
     }, 1200);
   }, [currentIndex, isNavigationLocked, isOnCooldown]);
   
-  // Handle "Read More" button click
-  const handleReadMore = () => {
+  // Open the Wikipedia article
+  const handleReadMore = useCallback(() => {
     if (!currentArticle) return;
     
-    // Different behavior based on the article source
-    // Note: The OpenURL won't work in this environment but would work in the actual app
+    // Open appropriate URL based on source
     if (currentArticle.source === 'hackernews' && currentArticle.url) {
       window.open(currentArticle.url, '_blank');
-    } else if (currentArticle.source === 'wikipedia' || currentArticle.source === 'wikievents') {
+    } else if (currentArticle.source === 'wikipedia' || !currentArticle.source) {
+      window.open(`https://en.wikipedia.org/wiki/${encodeURIComponent(currentArticle.title)}`, '_blank');
+    } else if (currentArticle.source === 'wikievents') {
       window.open(`https://en.wikipedia.org/wiki/${encodeURIComponent(currentArticle.title)}`, '_blank');
     } else if (currentArticle.source === 'onthisday') {
-      if (currentArticle.url) {
-        window.open(currentArticle.url, '_blank');
-      } else {
-        window.open(`https://en.wikipedia.org/wiki/Wikipedia:On_this_day/${formatDate(new Date().toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' }))}`, '_blank');
-      }
+      // Get current date for the on this day page
+      const today = new Date();
+      const month = today.getMonth() + 1; // getMonth() is 0-indexed
+      const day = today.getDate();
+      
+      // Redirect to Wikipedia's On This Day page instead of Google search
+      window.open(`https://en.wikipedia.org/wiki/Wikipedia:On_this_day/${month}_${day}`, '_blank');
     } else if (currentArticle.source === 'oksurf') {
-      window.open(`https://www.google.com/search?q=${encodeURIComponent(currentArticle.title)}`, '_blank');
+      // For OK.Surf, search the headline
+      const query = encodeURIComponent(currentArticle.title);
+      window.open(`https://www.google.com/search?q=${query}`, '_blank');
     } else if (currentArticle.source === 'reddit' && currentArticle.url) {
       window.open(currentArticle.url, '_blank');
     } else if (currentArticle.source === 'rss' && currentArticle.url) {
       window.open(currentArticle.url, '_blank');
-    } else {
-      // Fallback for any other source or missing URL
-      window.open(`https://en.wikipedia.org/wiki/${encodeURIComponent(currentArticle.title)}`, '_blank');
+    } else if (currentArticle.source === 'movie' && currentArticle.url) {
+      // Open IMDb page for movies
+      window.open(currentArticle.url, '_blank');
     }
-  };
+  }, [currentArticle]);
   
   // Get the appropriate read more button text based on article source
   const getReadMoreButtonText = useCallback((source?: ContentSource): string => {
@@ -766,11 +771,24 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
     }
   }, [currentIndex, articles]);
   
-  // Handle opening the podcast modal
-  const handleViewPodcasts = () => {
-    if (relatedPodcasts.length > 0) {
-      setShowPodcastModal(true);
+  // Handle double tap to like
+  const handleTap = (e: React.MouseEvent) => {
+    // Prevent any unintended scrolling
+    e.preventDefault();
+    
+    const now = Date.now();
+    const DOUBLE_TAP_DELAY = 300; // ms
+    
+    if (lastTapTime && (now - lastTapTime) < DOUBLE_TAP_DELAY) {
+      // Double tap detected
+      if (currentArticle) {
+        handleLike();
+        setShowLikeAnimation(true);
+        setTimeout(() => setShowLikeAnimation(false), 1000);
+      }
     }
+    
+    setLastTapTime(now);
   };
   
   // Fetch related podcasts when current article changes
@@ -789,6 +807,13 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
     
     fetchRelatedPodcasts();
   }, [currentArticle]);
+  
+  // Handle opening the podcast modal
+  const handleViewPodcasts = () => {
+    if (relatedPodcasts.length > 0) {
+      setShowPodcastModal(true);
+    }
+  };
   
   // Update the animation variants for the article transitions
   const articleVariants = {
@@ -1004,41 +1029,6 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
         scrollBehavior: 'smooth',
         WebkitTapHighlightColor: 'transparent'
       }}
-      onTouchStart={(e) => {
-        // Record starting touch position for swipe detection
-        if (e.touches && e.touches.length === 1) {
-          const touch = e.touches[0];
-          touchStartY.current = touch.clientY;
-        }
-      }}
-      onTouchEnd={(e) => {
-        // If we have valid touch start and end positions, determine if it was a swipe
-        if (touchStartY.current !== null && touchEndY.current !== null) {
-          const deltaY = touchEndY.current - touchStartY.current;
-          
-          // Threshold for considering it a swipe (adjust as needed)
-          if (Math.abs(deltaY) > 50) {
-            if (deltaY > 0) {
-              // Swipe down - go to previous
-              goToPrevious();
-            } else {
-              // Swipe up - go to next
-              goToNext();
-            }
-          }
-          
-          // Reset values
-          touchStartY.current = null;
-          touchEndY.current = null;
-        }
-      }}
-      onTouchMove={(e) => {
-        // Update current touch position
-        if (e.touches && e.touches.length === 1) {
-          const touch = e.touches[0];
-          touchEndY.current = touch.clientY;
-        }
-      }}
     >
       {/* Fixed header at the top */}
       <div className="fixed top-0 left-0 right-0 p-4 flex justify-between items-center z-50 bg-gradient-to-b from-black/80 to-transparent backdrop-blur-sm">
@@ -1130,10 +1120,9 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
               <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-transparent" />
             </motion.div>
 
-            {/* Content container with increased bottom padding for mobile (76px total) */}
+            {/* Content container with responsive bottom padding - using Tailwind classes */}
             <motion.div 
-              className="absolute bottom-0 left-0 right-0 px-6 py-7 z-20 bg-black/30 backdrop-blur-md"
-              style={{ paddingBottom: 'calc(1.75rem + 76px)' }}
+              className="absolute bottom-0 left-0 right-0 px-6 py-7 z-20 bg-black/30 backdrop-blur-md pb-[calc(1.75rem+76px)] md:pb-10"
               initial={{ opacity: 0, y: 20 }}
               animate={{ 
                 opacity: 1, 
@@ -1194,7 +1183,7 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
                   {/* Read more button */}
                   <button 
                     onClick={handleReadMore}
-                    className="inline-flex items-center text-white font-space hover:text-gray-300 transition mt-2 md:mt-10" 
+                    className="inline-flex items-center text-white font-space hover:text-gray-300 transition mt-2"
                   >
                     <span className="mr-2">
                       {getReadMoreButtonText(currentArticle.source)}
@@ -1264,13 +1253,53 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
       <div className="fixed inset-0 pointer-events-none z-10 flex">
         <div 
           className="h-full w-1/2 pointer-events-auto opacity-0 touch-manipulation"
-          onClick={goToPrevious}
           style={{ touchAction: 'manipulation' }}
+          onTouchStart={(e) => {
+            // Only handle touch events for swipe navigation
+            if (e.touches && e.touches.length === 1) {
+              touchStartY.current = e.touches[0].clientY;
+            }
+          }}
+          onTouchEnd={() => {
+            if (touchStartY.current !== null && touchEndY.current !== null) {
+              const deltaY = touchEndY.current - touchStartY.current;
+              if (Math.abs(deltaY) > 50 && deltaY > 0) {
+                goToPrevious();
+              }
+              touchStartY.current = null;
+              touchEndY.current = null;
+            }
+          }}
+          onTouchMove={(e) => {
+            if (e.touches && e.touches.length === 1) {
+              touchEndY.current = e.touches[0].clientY;
+            }
+          }}
         />
         <div 
           className="h-full w-1/2 pointer-events-auto opacity-0 touch-manipulation"
-          onClick={goToNext}
           style={{ touchAction: 'manipulation' }}
+          onTouchStart={(e) => {
+            // Only handle touch events for swipe navigation
+            if (e.touches && e.touches.length === 1) {
+              touchStartY.current = e.touches[0].clientY;
+            }
+          }}
+          onTouchEnd={() => {
+            if (touchStartY.current !== null && touchEndY.current !== null) {
+              const deltaY = touchEndY.current - touchStartY.current;
+              if (Math.abs(deltaY) > 50 && deltaY < 0) {
+                goToNext();
+              }
+              touchStartY.current = null;
+              touchEndY.current = null;
+            }
+          }}
+          onTouchMove={(e) => {
+            if (e.touches && e.touches.length === 1) {
+              touchEndY.current = e.touches[0].clientY;
+            }
+          }}
         />
       </div>
       

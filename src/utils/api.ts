@@ -75,65 +75,6 @@ const isCacheValid = (cacheKey: string): boolean => {
   return now - API_CACHE[cacheKey].timestamp < CACHE_DURATION;
 };
 
-// Helper to safely check if localStorage is available
-const isLocalStorageAvailable = (): boolean => {
-  try {
-    if (typeof window === 'undefined') return false;
-    if (typeof localStorage === 'undefined') return false;
-    
-    const testKey = '__storage_test__';
-    localStorage.setItem(testKey, testKey);
-    localStorage.removeItem(testKey);
-    return true;
-  } catch (e) {
-    return false;
-  }
-};
-
-// Helper to get data from cache
-const getFromCache = (cacheKey: string): any | null => {
-  // First check in-memory cache
-  if (isCacheValid(cacheKey)) return API_CACHE[cacheKey].data;
-  
-  // Then check localStorage if available
-  if (isLocalStorageAvailable()) {
-    try {
-      const storedCache = localStorage.getItem(`apicache_${cacheKey}`);
-      if (storedCache) {
-        const parsedCache = JSON.parse(storedCache);
-        if (Date.now() - parsedCache.timestamp < CACHE_DURATION) {
-          // Also update the in-memory cache
-          API_CACHE[cacheKey] = parsedCache;
-          return parsedCache.data;
-        }
-      }
-    } catch (error) {
-      console.error('Error reading from localStorage:', error);
-    }
-  }
-  
-  return null;
-};
-
-// Helper to save data to cache
-const saveToCache = (cacheKey: string, data: any): void => {
-  // Update in-memory cache
-  API_CACHE[cacheKey] = {
-    timestamp: Date.now(),
-    data
-  };
-  
-  // Update localStorage if available
-  if (isLocalStorageAvailable()) {
-    try {
-      localStorage.setItem(`apicache_${cacheKey}`, JSON.stringify(API_CACHE[cacheKey]));
-    } catch (error) {
-      console.error('Error saving to localStorage:', error);
-      // If localStorage fails, we still have the in-memory cache
-    }
-  }
-};
-
 // Get data from cache or fetch new
 const getFromCacheOrFetch = async (cacheKey: string, fetchFn: () => Promise<any>): Promise<any> => {
   if (isCacheValid(cacheKey)) {
@@ -156,50 +97,37 @@ export const getHighResImage = (thumbnail: any): any => {
   try {
     const imgSrc = thumbnail.source;
     let newSrc = imgSrc;
-    let width = thumbnail.width || 800;
-    let height = thumbnail.height || 1200;
+    let width = thumbnail.width;
+    let height = thumbnail.height;
 
-    // Handle Wikipedia/Wikimedia thumbnail URLs - convert to higher resolution
-    if ((imgSrc.includes('wikipedia.org') || imgSrc.includes('wikimedia.org'))) {
-      // If it already contains /thumb/ path, modify it to request larger size
-      if (imgSrc.includes('/thumb/')) {
-        // Extract the filename from the URL
-        const parts = imgSrc.split('/');
-        const filenameWithSize = parts[parts.length - 1];
-        const filename = parts[parts.length - 2];
-        
-        // Check if the URL already specifies a size
-        if (filenameWithSize.match(/^(\d+)px-/)) {
-          // URL has a size specification (e.g., 220px-FileName.jpg)
-          // Replace with our desired size (1024px)
-          const newFilename = filenameWithSize.replace(/^(\d+)px-/, '1024px-');
-          
-          // Reconstruct the URL with the new size
-          parts[parts.length - 1] = newFilename;
-          newSrc = parts.join('/');
-          width = 1024;
-          
-          // Estimate the height proportionally if we have the original dimensions
-          if (thumbnail.width && thumbnail.height) {
-            const ratio = thumbnail.height / thumbnail.width;
-            height = Math.round(1024 * ratio);
-          }
-        } else {
-          // For URLs without explicit size, use the full resolution version
-          // Remove the thumbnail path and the last segment (size specification)
-          newSrc = imgSrc.replace(/\/thumb\//, '/').split('/').slice(0, -1).join('/');
-        }
-      } 
+    // Handle Wikipedia thumbnail URLs - convert /thumb/ to full resolution
+    if (imgSrc.includes('/thumb/') && (imgSrc.includes('wikipedia.org') || imgSrc.includes('wikimedia.org'))) {
+      // Get full resolution image by removing thumbnail size constraint
+      newSrc = imgSrc.replace(/\/thumb\//, '/').split('/').slice(0, -1).join('/');
+      
+      // If image is already big enough, keep it as is
+      if (width && width >= 800) {
+        return thumbnail;
+      }
+      
+      // Set larger dimensions for the full-size image
+      width = width ? width * 2 : 800;
+      height = height ? height * 2 : 1200;
+    }
+    
+    // Handle direct Wikimedia Commons URLs
+    else if (imgSrc.includes('wikimedia.org')) {
       // If URL contains a size parameter like /300px-
-      else if (imgSrc.match(/\/\d+px-/)) {
-        // Replace with larger size for Wikimedia Commons URLs
-        newSrc = imgSrc.replace(/\/\d+px-/, '/1024px-');
-        width = 1024;
-        
+      if (imgSrc.match(/\/\d+px-/)) {
+        // Replace with larger size, targeting 800px minimum
+        newSrc = imgSrc.replace(/\/\d+px-/, '/800px-');
+        width = 800;
         // Calculate height proportionally if we have original dimensions
-        if (thumbnail.width && thumbnail.height) {
-          const ratio = thumbnail.height / thumbnail.width;
-          height = Math.round(1024 * ratio);
+        if (width && height) {
+          const ratio = height / width;
+          height = Math.round(800 * ratio);
+        } else {
+          height = 1200; // Default tall rectangle
         }
       }
     }
@@ -217,8 +145,8 @@ export const getHighResImage = (thumbnail: any): any => {
       // Replace thumbnail suffixes with originals
       if (imgSrc.includes('_d.') || imgSrc.includes('_t.') || imgSrc.includes('_m.') || imgSrc.includes('_l.')) {
         newSrc = imgSrc.replace(/(_[a-z])\.(jpg|png|gif)/i, '.$2');
-        width = width * 2;
-        height = height * 2;
+        width = width ? width * 2 : 800;
+        height = height ? height * 2 : 800;
       }
     }
     
@@ -226,16 +154,16 @@ export const getHighResImage = (thumbnail: any): any => {
     else if (imgSrc.includes('external-preview.redd.it') || imgSrc.includes('preview.redd.it')) {
       // Reddit image previews often have width/compressions in URL params
       newSrc = imgSrc.split('?')[0];
-      width = width * 2;
-      height = height * 2;
+      width = width ? width * 2 : 800;
+      height = height ? height * 2 : 800;
     }
     
     // Return the enhanced image object
     return {
       ...thumbnail,
       source: newSrc,
-      width: width,
-      height: height
+      width: width || thumbnail.width,
+      height: height || thumbnail.height
     };
   } catch (error) {
     console.error('Error converting thumbnail to high-res:', error);
@@ -257,79 +185,64 @@ export async function fetchRandomWikipediaArticle(): Promise<WikipediaArticle> {
         if (featuredResponse.data && featuredResponse.data.tfa) {
           const data = featuredResponse.data.tfa;
           
-          // Check if it has a good quality image
-          if (data.thumbnail && data.thumbnail.source && 
-              !data.thumbnail.source.includes("question") && 
-              (!data.thumbnail.width || data.thumbnail.width >= 800)) {
-            
-            // Convert thumbnail to high-res
-            const highResThumbnail = getHighResImage(data.thumbnail);
-            
-            return {
-              pageid: data.pageid,
-              title: data.title,
-              extract: data.extract || data.description,
-              extract_html: data.extract_html,
-              thumbnail: highResThumbnail,
-              description: data.description,
-              source: 'wikipedia' as ContentSource
-            };
-          }
-        }
-      } catch (featuredError) {
-        console.log('Could not fetch featured article, falling back to random:', featuredError);
-      }
-      
-      // Attempt to get random articles until we find one with a good image
-      let attempts = 0;
-      const maxAttempts = 5;
-      
-      while (attempts < maxAttempts) {
-        // Use the official Wikipedia REST API for random summary
-        const response = await axios.get('https://en.wikipedia.org/api/rest_v1/page/random/summary', {
-          params: {
-            redirect: false
-          }
-        });
-        
-        const data = response.data;
-        
-        // Check if article has a good quality image
-        if (data.thumbnail && data.thumbnail.source && 
-            !data.thumbnail.source.includes("question") && 
-            (!data.thumbnail.width || data.thumbnail.width >= 800)) {
-          
           // Convert thumbnail to high-res
           const highResThumbnail = getHighResImage(data.thumbnail);
+          
+          // Check if this featured article has a good quality image
+          if (!highResThumbnail || 
+              !highResThumbnail.source || 
+              highResThumbnail.source.includes("question") || 
+              (highResThumbnail.width && highResThumbnail.width < 800)) {
+            // Skip and try a random article instead
+            console.log('Featured article had low quality image, falling back to random');
+            throw new Error('Low quality image in featured article');
+          }
           
           return {
             pageid: data.pageid,
             title: data.title,
-            extract: data.extract,
+            extract: data.extract || data.description,
             extract_html: data.extract_html,
             thumbnail: highResThumbnail,
             description: data.description,
             source: 'wikipedia' as ContentSource
           };
         }
-        
-        attempts++;
+      } catch (featuredError) {
+        console.log('Could not fetch featured article, falling back to random:', featuredError);
       }
       
-      // If we couldn't find an article with a good image after max attempts, return the last one anyway
-      const fallbackResponse = await axios.get('https://en.wikipedia.org/api/rest_v1/page/random/summary');
-      const fallbackData = fallbackResponse.data;
+      // Use the official Wikipedia API for random article with larger thumbnails
+      // Convert to REST API call with parameters to ensure high quality images
+      const response = await axios.get('https://en.wikipedia.org/api/rest_v1/page/random/summary', {
+        params: {
+          redirect: false,
+          thumbsize: 1600  // Request a larger thumbnail - increased from 1024 to 1600
+        }
+      });
       
-      // Convert thumbnail to high-res (if any)
-      const highResThumbnail = fallbackData.thumbnail ? getHighResImage(fallbackData.thumbnail) : undefined;
+      const data = response.data;
+      
+      // Skip articles without thumbnails or with low quality images - enforcing minimum width of 800
+      if (!data.thumbnail || 
+          !data.thumbnail.source || 
+          data.thumbnail.source.includes("question") || 
+          (data.thumbnail.width && data.thumbnail.width < 800)) {
+        // Try again recursively until we find a good image
+        console.log('Skipping article with low quality image, trying again');
+        return fetchRandomWikipediaArticle();
+      }
+      
+      // Convert thumbnail to high-res
+      const highResThumbnail = getHighResImage(data.thumbnail);
       
       return {
-        pageid: fallbackData.pageid,
-        title: fallbackData.title,
-        extract: fallbackData.extract,
-        extract_html: fallbackData.extract_html,
+        pageid: data.pageid,
+        title: data.title,
+        extract: data.extract,
+        extract_html: data.extract_html,
         thumbnail: highResThumbnail,
-        description: fallbackData.description,
+        description: data.description,
         source: 'wikipedia' as ContentSource
       };
     } catch (error) {
@@ -345,7 +258,7 @@ export async function fetchRandomWikipediaArticle(): Promise<WikipediaArticle> {
 export async function fetchRandomArticles(count: number = 10): Promise<WikipediaArticle[]> {
   try {
     // Request extra articles to allow for quality filtering
-    const requestCount = Math.ceil(count * 2.5); // Request 2.5x more to ensure we have enough articles with good images
+    const requestCount = Math.ceil(count * 2); // Request double to ensure enough good quality ones
     
     // Fetch articles in parallel
     const articles: WikipediaArticle[] = [];
@@ -355,28 +268,8 @@ export async function fetchRandomArticles(count: number = 10): Promise<Wikipedia
     // Add to the articles array
     articles.push(...results);
     
-    // First prioritize articles with good quality images
-    const articlesWithGoodImages = articles.filter(article => 
-      article.thumbnail &&
-      article.thumbnail.source &&
-      !article.thumbnail.source.includes("question") &&
-      (!article.thumbnail.width || article.thumbnail.width >= 800)
-    );
-    
-    console.log(`Found ${articlesWithGoodImages.length}/${articles.length} Wikipedia articles with good images`);
-    
-    // If we have enough articles with good images, use those first
-    if (articlesWithGoodImages.length >= count) {
-      return articlesWithGoodImages.slice(0, count);
-    }
-    
-    // Otherwise, fill in with remaining articles
-    const remainingArticles = articles.filter(article => 
-      !articlesWithGoodImages.includes(article)
-    );
-    
     // Apply quality filtering to ensure we get the best articles
-    const highQualityArticles = [...articlesWithGoodImages, ...remainingArticles];
+    const highQualityArticles = filterHighQualityArticles(articles);
     
     // If we have more articles than requested after filtering, return only what was asked for
     if (highQualityArticles.length > count) {
@@ -403,7 +296,7 @@ export async function fetchArticlesBySearch(searchTerm: string): Promise<Wikiped
           srsearch: searchTerm,
           format: 'json',
           origin: '*',
-          srlimit: 20 // Increase limit to find more articles with good images
+          srlimit: 20 // Request more to filter for quality
         }
       });
       
@@ -415,11 +308,20 @@ export async function fetchArticlesBySearch(searchTerm: string): Promise<Wikiped
           const titleParam = encodeURIComponent(result.title);
           const response = await axios.get(`https://en.wikipedia.org/api/rest_v1/page/summary/${titleParam}`, {
             params: {
-              redirect: true
+              redirect: false,
+              thumbsize: 1600 // Request larger thumbnails - increased from 1024 to 1600
             }
           });
           
           const data = response.data;
+          
+          // Skip articles without thumbnails or with low quality images
+          if (!data.thumbnail || 
+              !data.thumbnail.source || 
+              data.thumbnail.source.includes("question") || 
+              (data.thumbnail.width && data.thumbnail.width < 800)) {
+            return null;
+          }
           
           // Use utility to convert thumbnail to high-res
           const highResThumbnail = getHighResImage(data.thumbnail);
@@ -428,7 +330,6 @@ export async function fetchArticlesBySearch(searchTerm: string): Promise<Wikiped
             pageid: data.pageid,
             title: data.title,
             extract: data.extract,
-            extract_html: data.extract_html,
             thumbnail: highResThumbnail,
             description: data.description,
             source: 'wikipedia' as ContentSource
@@ -442,21 +343,8 @@ export async function fetchArticlesBySearch(searchTerm: string): Promise<Wikiped
       // Wait for all article data to be fetched
       const articles = await Promise.all(articlePromises);
       
-      // Filter out any null results and prioritize articles with good images
-      const validArticles = articles.filter(article => article !== null);
-      
-      // First prioritize articles with good quality images
-      const articlesWithGoodImages = validArticles.filter(article => 
-        article.thumbnail &&
-        article.thumbnail.source &&
-        !article.thumbnail.source.includes("question") &&
-        (!article.thumbnail.width || article.thumbnail.width >= 800)
-      );
-      
-      console.log(`Found ${articlesWithGoodImages.length}/${validArticles.length} search articles with good images for "${searchTerm}"`);
-      
-      // Prioritize articles with good images, but include others too if needed
-      return [...articlesWithGoodImages, ...validArticles.filter(a => !articlesWithGoodImages.includes(a))];
+      // Filter out any null results
+      return articles.filter(article => article !== null);
     };
     
     return await getFromCacheOrFetch(cacheKey, fetchFn);
@@ -478,131 +366,45 @@ export async function validateTopic(topic: string): Promise<boolean> {
 }
 
 // ========== ON THIS DAY API ==========
-/**
- * Fetches "On This Day" events and returns them as Wikipedia articles with high-quality images
- */
-export async function fetchOnThisDayEvents(count: number = 5, fromCache: boolean = true): Promise<WikipediaArticle[]> {
+export async function fetchOnThisDayEvents(count: number = 5): Promise<WikipediaArticle[]> {
   const today = new Date();
-  const month = today.getMonth() + 1;
+  const month = today.getMonth() + 1; // getMonth() is 0-indexed
   const day = today.getDate();
+  const formattedDate = `${month}/${day}`;
   
-  // Updated cache key format for consistency
-  const cacheKey = `on_this_day_${month}_${day}`;
+  const cacheKey = `onthisday_${formattedDate}`;
   
-  // Try to get from cache if requested
-  if (fromCache) {
-    const cachedArticles = getFromCache(cacheKey);
-    if (cachedArticles) {
-      console.log(`Found ${cachedArticles.length} cached "On This Day" events`);
-      return cachedArticles.slice(0, count);
+  const fetchFn = async () => {
+    try {
+      const response = await axios.get(`https://byabbe.se/on-this-day/${month}/${day}/events.json`);
+      const events = response.data.events;
+      
+      // Shuffle and take a subset of events
+      const shuffledEvents = events.sort(() => 0.5 - Math.random()).slice(0, count);
+      
+      // Convert to WikipediaArticle format
+      return shuffledEvents.map((event: any) => {
+        // Create a unique ID for the event
+        const eventId = parseInt(`${month}${day}${event.year}`.padEnd(10, '0'));
+        
+        return {
+          pageid: eventId,
+          title: `${event.year}: Historical Event`,
+          extract: event.description,
+          description: `On ${formattedDate}, in the year ${event.year}`,
+          year: event.year,
+          date: formattedDate,
+          source: 'onthisday' as ContentSource,
+          // No thumbnail by default, will use a fallback in the UI
+        };
+      });
+    } catch (error) {
+      console.error('Error fetching On This Day events:', error);
+      throw error;
     }
-  }
+  };
   
-  try {
-    // Fetch events from the API
-    const response = await fetch(`https://byabbe.se/on-this-day/${month}/${day}/events.json`);
-    const data = await response.json();
-    
-    if (!data.events || data.events.length === 0) {
-      console.error("No events found for today");
-      return [];
-    }
-    
-    console.log(`Fetched ${data.events.length} events for today`);
-    
-    // We'll fetch more events than requested to ensure we have enough after filtering
-    const eventsToProcess = Math.min(data.events.length, Math.max(count * 3, 15));
-    
-    // Process events in batches to avoid overwhelming the Wikipedia API
-    const processedArticles: WikipediaArticle[] = [];
-    
-    // Sort events by year (most recent first) and take a subset
-    const sortedEvents = [...data.events].sort((a, b) => parseInt(b.year) - parseInt(a.year)).slice(0, eventsToProcess);
-    
-    for (const event of sortedEvents) {
-      if (processedArticles.length >= count * 2) {
-        break; // We have enough articles after filtering
-      }
-      
-      const year = event.year;
-      const description = event.description;
-      
-      // Generate a deterministic ID based on year and description
-      const uniqueId = hashCode(`${year}_${description}`);
-      
-      // Create a base article
-      let article: WikipediaArticle = {
-        pageid: uniqueId,
-        title: `${year}: ${description.slice(0, 100)}${description.length > 100 ? '...' : ''}`,
-        extract: description,
-        source: 'wikievents',
-        url: event.wikipedia ? event.wikipedia[0].wikipedia : '',
-        fetchTime: new Date().toISOString(),
-      };
-      
-      // If the event has a Wikipedia link, try to fetch a high-quality image for it
-      if (event.wikipedia && event.wikipedia.length > 0) {
-        const wikipediaTitle = event.wikipedia[0].title;
-        try {
-          // Fetch more details including a high-resolution thumbnail
-          const detailedArticle = await fetchWikipediaArticleByTitle(wikipediaTitle, 1024);
-          if (detailedArticle) {
-            // Keep the original event year and description while using the Wikipedia article's image
-            article = {
-              ...article,
-              thumbnail: detailedArticle.thumbnail,
-              extract_html: detailedArticle.extract_html || `<p>${description}</p>`,
-            };
-          }
-        } catch (error) {
-          console.error(`Error fetching details for "${wikipediaTitle}":`, error);
-        }
-      }
-      
-      processedArticles.push(article);
-    }
-    
-    // Filter articles with good quality images
-    const filteredArticles = processedArticles.filter(article => {
-      // Must have a thumbnail
-      if (!article.thumbnail) return false;
-      
-      // Skip question mark/placeholder images
-      if (article.thumbnail.source.includes('question')) return false;
-      
-      // Skip low-resolution images
-      if (!article.thumbnail.width || article.thumbnail.width < 800) return false;
-      
-      return true;
-    });
-    
-    // If we don't have enough articles with good images, include some without images
-    let finalArticles = filteredArticles;
-    if (filteredArticles.length < count) {
-      const remainingCount = count - filteredArticles.length;
-      const articlesWithoutGoodImages = processedArticles
-        .filter(article => !filteredArticles.includes(article))
-        .slice(0, remainingCount);
-      
-      finalArticles = [...filteredArticles, ...articlesWithoutGoodImages];
-    }
-    
-    // Sort by year (most recent first)
-    finalArticles.sort((a, b) => {
-      const yearA = parseInt(a.title.split(':')[0]);
-      const yearB = parseInt(b.title.split(':')[0]);
-      return yearB - yearA;
-    });
-    
-    // Cache the results
-    saveToCache(cacheKey, finalArticles);
-    
-    console.log(`Returning ${finalArticles.length} "On This Day" events with good images`);
-    return finalArticles.slice(0, count);
-  } catch (error) {
-    console.error("Error fetching On This Day events:", error);
-    return [];
-  }
+  return await getFromCacheOrFetch(cacheKey, fetchFn);
 }
 
 // ========== HACKER NEWS API ==========
@@ -1057,151 +859,175 @@ export async function fetchWikipediaCurrentEvents(count: number = 5): Promise<Wi
   
   const fetchFn = async () => {
     try {
-      // Fetch the Wikipedia Current Events Portal for today
-      const response = await axios.get(
-        `https://en.wikipedia.org/w/api.php`,
-        {
-          params: {
-            action: 'parse',
-            page: `Portal:Current_events/${year}_${month}_${day}`,
-            format: 'json',
-            origin: '*',
-            prop: 'text|images',
-            redirects: true
-          }
-        }
-      );
+      // First try to fetch current events
+      const url = `https://en.wikipedia.org/api/rest_v1/feed/onthisday/events/${month}/${day}`;
+      const response = await axios.get(url);
       
-      if (!response.data || !response.data.parse || !response.data.parse.text) {
-        throw new Error('Failed to fetch Wikipedia Current Events');
-      }
-      
-      const html = response.data.parse.text['*'];
-      const parser = new DOMParser();
-      const doc = parser.parseFromString(html, 'text/html');
-      
-      // Get all description list items containing events
-      const eventItems = doc.querySelectorAll('.current-events-content .vevent');
-      
-      const events: WikipediaArticle[] = [];
-      
-      // Fetch image data for each article to include thumbnails
-      for (let i = 0; i < eventItems.length && events.length < count * 3; i++) {
-        const item = eventItems[i];
-        const links = item.querySelectorAll('a[href^="/wiki/"]');
+      if (response.data && response.data.events && response.data.events.length) {
+        // Sort events by most recent year
+        const sortedEvents = response.data.events.sort((a: any, b: any) => b.year - a.year);
         
-        // Skip items without links
-        if (links.length === 0) continue;
+        // Take the most recent events
+        const recentEvents = sortedEvents.slice(0, count * 2); // Get more to filter for quality
         
-        // Use the first link as the main article
-        const randomIndex = Math.floor(Math.random() * links.length);
-        const mainLink = links[randomIndex];
-        const title = mainLink.textContent?.trim();
-        const href = mainLink.getAttribute('href')?.split('/wiki/')[1];
-        
-        if (!title || !href) continue;
-        
-        try {
-          // Get the actual article data with image
-          const articleData = await axios.get(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(href)}`, {
-            params: {
-              redirect: true
+        // Convert events to WikipediaArticle format
+        const eventPromises = recentEvents.map(async (event: any) => {
+          try {
+            // Event might have pages attached, use the first one if available
+            if (event.pages && event.pages.length > 0) {
+              const page = event.pages[0];
+              
+              // Skip if no thumbnail or low quality
+              if (!page.thumbnail || 
+                  !page.thumbnail.source || 
+                  page.thumbnail.source.includes("question") ||
+                  (page.thumbnail.width && page.thumbnail.width < 800)) {
+                // Try to get a better image through the REST API
+                try {
+                  const pageDetails = await axios.get(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(page.title)}`, {
+                    params: {
+                      redirect: false,
+                      thumbsize: 1600 // Increased from 1024 to 1600 for higher resolution
+                    }
+                  });
+                  
+                  if (pageDetails.data && 
+                      pageDetails.data.thumbnail && 
+                      pageDetails.data.thumbnail.source &&
+                      !pageDetails.data.thumbnail.source.includes("question") &&
+                      pageDetails.data.thumbnail.width >= 800) {
+                    // Use the better image
+                    page.thumbnail = pageDetails.data.thumbnail;
+                  } else {
+                    // Skip if still no good image
+                    return null;
+                  }
+                } catch (imageError) {
+                  console.error('Error fetching better image:', imageError);
+                  return null;
+                }
+              }
+              
+              // Create article from page
+              return {
+                pageid: page.pageid,
+                title: page.title,
+                extract: event.text || page.extract || `Event from ${event.year}: ${page.title}`,
+                thumbnail: getHighResImage(page.thumbnail),
+                description: `On ${month}/${day}, in the year ${event.year}`,
+                year: event.year,
+                date: `${month}/${day}`,
+                source: 'wikievents' as ContentSource
+              };
+            } else {
+              // No page attached, create generic event
+              return {
+                pageid: parseInt(`${month}${day}${event.year}`.padEnd(10, '0')),
+                title: `${event.year}: Historical Event`,
+                extract: event.text,
+                description: `On ${month}/${day}, in the year ${event.year}`,
+                year: event.year,
+                date: `${month}/${day}`,
+                source: 'wikievents' as ContentSource
+              };
             }
-          });
-          
-          if (articleData.data && articleData.data.title) {
-            // Enhance image quality with getHighResImage
-            const highResThumbnail = articleData.data.thumbnail ? getHighResImage(articleData.data.thumbnail) : undefined;
-            
-            events.push({
-              pageid: articleData.data.pageid || Math.floor(Math.random() * 1000000),
-              title: articleData.data.title,
-              extract: articleData.data.extract || item.textContent?.trim() || '',
-              extract_html: articleData.data.extract_html,
-              thumbnail: highResThumbnail,
-              description: `Current events: ${today.toLocaleDateString()}`,
-              url: `https://en.wikipedia.org/wiki/${encodeURIComponent(href)}`,
-              source: 'wikievents' as ContentSource
-            });
+          } catch (eventError) {
+            console.error('Error processing event:', eventError);
+            return null;
           }
-        } catch (articleError) {
-          console.error(`Error fetching article data for ${title}:`, articleError);
-          // Don't add failed articles
-          continue;
+        });
+        
+        // Wait for all event processing to complete
+        const articles = await Promise.all(eventPromises);
+        
+        // Filter out nulls and limit to requested count
+        const validArticles = articles.filter(article => article !== null);
+        
+        // Prioritize articles with thumbnails
+        const withImages = validArticles.filter(article => article && article.thumbnail && article.thumbnail.source);
+        
+        // Add articles without thumbnails only if needed to meet count
+        if (withImages.length >= count) {
+          return withImages.slice(0, count);
+        } else {
+          const noImages = validArticles.filter(article => !article.thumbnail || !article.thumbnail.source);
+          return [...withImages, ...noImages].slice(0, count);
         }
       }
       
-      // Prioritize articles with good images
-      const articlesWithGoodImages = events.filter(article => 
-        article.thumbnail &&
-        article.thumbnail.source &&
-        !article.thumbnail.source.includes("question") &&
-        (!article.thumbnail.width || article.thumbnail.width >= 800)
-      );
+      // Fallback to current events portal for today
+      console.log('No events found for today, falling back to current events portal');
       
-      console.log(`Found ${articlesWithGoodImages.length}/${events.length} Wikipedia events with good images`);
-      
-      // If we found enough articles with good images, use those
-      if (articlesWithGoodImages.length >= count) {
-        return articlesWithGoodImages.slice(0, count);
-      }
-      
-      // Otherwise include other articles too
-      const remainingArticles = events.filter(article => !articlesWithGoodImages.includes(article));
-      const result = [...articlesWithGoodImages, ...remainingArticles].slice(0, count);
-      
-      if (result.length === 0) {
-        // Fallback to yesterday if needed
+      try {
+        // Format date for current events portal (WP:Current_events/YYYY_MM_DD)
+        const portalUrl = `https://en.wikipedia.org/api/rest_v1/page/html/Portal:Current_events/${year}_${month}_${day}`;
+        const portalResponse = await axios.get(portalUrl);
+        
+        if (portalResponse.data) {
+          // Extract content from HTML
+          const html = portalResponse.data;
+          
+          // Simple article with portal content
+          return [{
+            pageid: parseInt(`${year}${month}${day}`),
+            title: `Current Events (${month}/${day}/${year})`,
+            extract: `Current events for ${month}/${day}/${year}`,
+            description: `Current events: ${month}/${day}/${year}`,
+            url: `https://en.wikipedia.org/wiki/Portal:Current_events/${year}_${month}_${day}`,
+            source: 'wikievents' as ContentSource
+          }];
+        }
+      } catch (portalError) {
+        console.error('Error fetching current events portal:', portalError);
+        
+        // Try yesterday's date as fallback
         const yesterday = new Date(today);
         yesterday.setDate(yesterday.getDate() - 1);
-        const yesterdayYear = yesterday.getFullYear();
-        const yesterdayMonth = String(yesterday.getMonth() + 1).padStart(2, '0');
-        const yesterdayDay = String(yesterday.getDate()).padStart(2, '0');
+        const yYear = yesterday.getFullYear();
+        const yMonth = String(yesterday.getMonth() + 1).padStart(2, '0');
+        const yDay = String(yesterday.getDate()).padStart(2, '0');
         
-        return [{
-          pageid: Math.floor(Math.random() * 100000000),
-          title: `Recent Events (${yesterday.toLocaleDateString()})`,
-          extract: `Events from yesterday are being displayed because today's events aren't available yet.`,
-          description: `Current events: ${yesterday.toLocaleDateString()}`,
-          url: `https://en.wikipedia.org/wiki/Portal:Current_events/${yesterdayYear}_${yesterdayMonth}_${yesterdayDay}`,
-          source: 'wikievents' as ContentSource
-        }];
+        try {
+          const yesterdayUrl = `https://en.wikipedia.org/api/rest_v1/page/html/Portal:Current_events/${yYear}_${yMonth}_${yDay}`;
+          const yesterdayResponse = await axios.get(yesterdayUrl);
+          
+          if (yesterdayResponse.data) {
+            return [{
+              pageid: parseInt(`${yYear}${yMonth}${yDay}`),
+              title: `Recent Events (${yesterday.toLocaleDateString()})`,
+              extract: `Events from yesterday are being displayed because today's events aren't available yet.`,
+              description: `Current events: ${yesterday.toLocaleDateString()}`,
+              url: `https://en.wikipedia.org/wiki/Portal:Current_events/${year}_${month}_${day}`,
+              source: 'wikievents' as ContentSource
+            }];
+          }
+        } catch (fallbackError) {
+          console.error('Error fetching fallback Wikipedia current events:', fallbackError);
+        }
       }
       
-      return result;
+      // Final fallback - return a message if all else fails
+      return [{
+        pageid: Math.floor(Math.random() * 100000000),
+        title: `${today.toLocaleDateString()} Events`,
+        extract: `We couldn't fetch today's current events. Please check Wikipedia directly.`,
+        description: `Current events: ${today.toLocaleDateString()}`,
+        url: `https://en.wikipedia.org/wiki/Portal:Current_events`,
+        source: 'wikievents' as ContentSource
+      }];
     } catch (error) {
       console.error('Error fetching Wikipedia current events:', error);
       
-      try {
-        // Fallback to yesterday
-        const yesterday = new Date(today);
-        yesterday.setDate(yesterday.getDate() - 1);
-        const yesterdayYear = yesterday.getFullYear();
-        const yesterdayMonth = String(yesterday.getMonth() + 1).padStart(2, '0');
-        const yesterdayDay = String(yesterday.getDate()).padStart(2, '0');
-        
-        return [{
-          pageid: Math.floor(Math.random() * 100000000),
-          title: `Recent Events (${yesterday.toLocaleDateString()})`,
-          extract: `Events from yesterday are being displayed because today's events aren't available yet.`,
-          description: `Current events: ${yesterday.toLocaleDateString()}`,
-          url: `https://en.wikipedia.org/wiki/Portal:Current_events/${yesterdayYear}_${yesterdayMonth}_${yesterdayDay}`,
-          source: 'wikievents' as ContentSource
-        }];
-      } catch (fallbackError) {
-        console.error('Error fetching fallback Wikipedia current events:', fallbackError);
-        
-        // Return a fallback explanation if we couldn't fetch events
-        const today = new Date();
-        return [{
-          pageid: Math.floor(Math.random() * 100000000),
-          title: `${today.toLocaleDateString()} Events`,
-          extract: `We couldn't fetch today's current events. Please check Wikipedia directly.`,
-          description: `Current events: ${today.toLocaleDateString()}`,
-          url: `https://en.wikipedia.org/wiki/Portal:Current_events`,
-          source: 'wikievents' as ContentSource
-        }];
-      }
+      // Return a fallback explanation if we couldn't fetch events
+      const today = new Date();
+      return [{
+        pageid: Math.floor(Math.random() * 100000000),
+        title: `${today.toLocaleDateString()} Events`,
+        extract: `We couldn't fetch today's current events. Please check Wikipedia directly.`,
+        description: `Current events: ${today.toLocaleDateString()}`,
+        url: `https://en.wikipedia.org/wiki/Portal:Current_events`,
+        source: 'wikievents' as ContentSource
+      }];
     }
   };
   
@@ -1560,8 +1386,6 @@ export interface MediaOfTheDay {
   license?: string;
   author?: string;
   dateCreated?: string;
-  width?: number;
-  height?: number;
 }
 
 export interface NasaApodResponse {
@@ -2491,85 +2315,4 @@ function createMockMovieData(count: number): WikipediaArticle[] {
   
   // Return a slice of the mock data up to the requested count
   return mockMovies.slice(0, count);
-}
-
-// Add this near the top of the file with other utility functions
-/**
- * Simple string hashing function to generate deterministic numeric IDs from strings
- */
-function hashCode(str: string): number {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    const char = str.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash; // Convert to 32bit integer
-  }
-  return hash;
-}
-
-// Utility function to determine if an image meets quality criteria
-export const isGoodQualityImage = (image: any): boolean => {
-  if (!image || !image.source) return false;
-  
-  const src = image.source.toLowerCase();
-  
-  // Filter out question mark placeholder images
-  if (src.includes('question')) return false;
-  
-  // Filter out default or placeholder icons
-  if (src.includes('placeholder') || 
-      src.includes('default-icon') || 
-      src.includes('no-image')) return false;
-  
-  // Check if image has sufficient width (prioritize high-res images)
-  if (image.width && image.width < 800) return false;
-  
-  // Filter out logos and icons (typically small square images)
-  const isLikelyLogo = image.width && image.height && 
-                      image.width <= 300 && image.height <= 300 &&
-                      Math.abs(image.width - image.height) < 50; // Square-ish
-  
-  if (isLikelyLogo) return false;
-  
-  // Check for common file formats used for article images
-  const validExtensions = ['.jpg', '.jpeg', '.png', '.webp'];
-  const hasValidExtension = validExtensions.some(ext => src.includes(ext));
-  
-  if (!hasValidExtension) return false;
-  
-  // Consider the image good quality if it passed all filters
-  return true;
-};
-
-// Fetch a specific Wikipedia article by title
-export async function fetchWikipediaArticleByTitle(title: string, imageWidth: number = 1024): Promise<WikipediaArticle | null> {
-  try {
-    // Encode the title for URL safety
-    const encodedTitle = encodeURIComponent(title);
-    
-    // Use the Wikipedia REST API to get article summary
-    const response = await axios.get(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodedTitle}`, {
-      params: {
-        redirect: true
-      }
-    });
-    
-    const data = response.data;
-    
-    // Use utility to convert thumbnail to high-res
-    const highResThumbnail = data.thumbnail ? getHighResImage(data.thumbnail) : undefined;
-    
-    return {
-      pageid: data.pageid,
-      title: data.title,
-      extract: data.extract,
-      extract_html: data.extract_html,
-      thumbnail: highResThumbnail,
-      description: data.description,
-      source: 'wikipedia' as ContentSource
-    };
-  } catch (error) {
-    console.error(`Error fetching article data for ${title}:`, error);
-    return null;
-  }
 }

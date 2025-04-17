@@ -41,7 +41,12 @@ const PodcastView: React.FC<PodcastViewProps> = ({ onRefresh, tabNavigator, onPl
   const [famousPodcasters, setFamousPodcasters] = useState<PodcastCategory[]>([
     { id: 'lexFridman', title: 'Lex Fridman Podcast', podcasts: [], loading: true },
     { id: 'joeRogan', title: 'The Joe Rogan Experience', podcasts: [], loading: true },
-    { id: 'hubermanLab', title: 'Huberman Lab', podcasts: [], loading: true }
+    { id: 'hubermanLab', title: 'Huberman Lab', podcasts: [], loading: true },
+    { id: 'samHarris', title: 'Making Sense with Sam Harris', podcasts: [], loading: true },
+    { id: 'steveBartlett', title: 'The Diary of a CEO', podcasts: [], loading: true },
+    { id: 'timFerriss', title: 'The Tim Ferriss Show', podcasts: [], loading: true },
+    { id: 'jordanPeterson', title: 'The Jordan B. Peterson Podcast', podcasts: [], loading: true },
+    { id: 'richRoll', title: 'Rich Roll Podcast', podcasts: [], loading: true }
   ]);
   
   // Ref for bottom observer
@@ -98,6 +103,11 @@ const PodcastView: React.FC<PodcastViewProps> = ({ onRefresh, tabNavigator, onPl
     loadFamousPodcaster('lexFridman', 'lex fridman');
     loadFamousPodcaster('joeRogan', 'joe rogan');
     loadFamousPodcaster('hubermanLab', 'huberman lab');
+    loadFamousPodcaster('samHarris', 'sam harris podcast');
+    loadFamousPodcaster('steveBartlett', 'diary of a ceo');
+    loadFamousPodcaster('timFerriss', 'tim ferriss');
+    loadFamousPodcaster('jordanPeterson', 'jordan peterson');
+    loadFamousPodcaster('richRoll', 'rich roll');
     
     // Load other categories
     loadCategoryPodcasts('newNoteworthy', 'new');
@@ -131,26 +141,19 @@ const PodcastView: React.FC<PodcastViewProps> = ({ onRefresh, tabNavigator, onPl
   // Load famous podcaster episodes
   const loadFamousPodcaster = async (podcasterId: string, searchTerm: string) => {
     try {
-      console.log(`Loading ${podcasterId} podcasts with search term: ${searchTerm}`);
-      
       const response = await fetch(
         `https://itunes.apple.com/search?term=${encodeURIComponent(searchTerm)}&entity=podcast&limit=1`
       );
       const data = await response.json();
       
-      console.log(`Found ${data.results?.length || 0} podcast results for ${searchTerm}`);
-      
       if (data.results.length > 0) {
         const podcastId = data.results[0].collectionId;
-        console.log(`Found podcast ID: ${podcastId} for ${searchTerm}`);
         
         // Get episodes from the podcast
         const episodesResponse = await fetch(
           `https://itunes.apple.com/lookup?id=${podcastId}&entity=podcastEpisode&limit=20`
         );
         const episodesData = await episodesResponse.json();
-        
-        console.log(`Found ${episodesData.results?.length - 1 || 0} episodes for ${searchTerm}`);
         
         // Transform to our format - skip the first result as it's the podcast itself
         const episodes: PodcastEpisode[] = episodesData.results
@@ -168,39 +171,7 @@ const PodcastView: React.FC<PodcastViewProps> = ({ onRefresh, tabNavigator, onPl
             audio: item.previewUrl || ''
           }));
         
-        console.log(`Successfully processed ${episodes.length} episodes for ${searchTerm}`);
         updateFamousPodcasterPodcasts(podcasterId, episodes);
-      } else {
-        console.log(`No podcast found for ${searchTerm}, using backup method`);
-        
-        // Backup method: use the more generic search to find episodes
-        const episodesResponse = await fetch(
-          `https://itunes.apple.com/search?term=${encodeURIComponent(searchTerm)}&entity=podcastEpisode&limit=10`
-        );
-        const episodesData = await episodesResponse.json();
-        
-        console.log(`Backup search found ${episodesData.results?.length || 0} episodes for ${searchTerm}`);
-        
-        if (episodesData.results?.length > 0) {
-          const episodes: PodcastEpisode[] = episodesData.results.map((item: any) => ({
-            id: item.trackId,
-            title: item.trackName,
-            description: item.description || '',
-            url: item.trackViewUrl,
-            datePublished: new Date(item.releaseDate).toLocaleDateString(),
-            duration: item.trackTimeMillis ? Math.floor(item.trackTimeMillis / 1000) : '',
-            image: item.artworkUrl600 || item.artworkUrl100,
-            feedTitle: item.collectionName || searchTerm,
-            feedUrl: item.feedUrl || '',
-            audio: item.previewUrl || ''
-          }));
-          
-          console.log(`Successfully processed ${episodes.length} episodes from backup search for ${searchTerm}`);
-          updateFamousPodcasterPodcasts(podcasterId, episodes);
-        } else {
-          console.log(`No episodes found in backup search for ${searchTerm}`);
-          updateFamousPodcasterPodcasts(podcasterId, []);
-        }
       }
     } catch (error) {
       console.error(`Error loading ${podcasterId} podcasts:`, error);
@@ -738,10 +709,25 @@ const PodcastView: React.FC<PodcastViewProps> = ({ onRefresh, tabNavigator, onPl
         {/* 5. Huberman Lab */}
         {renderPodcastCategory(famousPodcasters.find(c => c.id === 'hubermanLab') || { id: 'hubermanLab', title: 'Huberman Lab', podcasts: [], loading: true })}
         
-        {/* 6. Everyone's Talking About */}
+        {/* 6. Sam Harris */}
+        {renderPodcastCategory(famousPodcasters.find(c => c.id === 'samHarris') || { id: 'samHarris', title: 'Making Sense with Sam Harris', podcasts: [], loading: true })}
+        
+        {/* 7. Steve Bartlett */}
+        {renderPodcastCategory(famousPodcasters.find(c => c.id === 'steveBartlett') || { id: 'steveBartlett', title: 'The Diary of a CEO', podcasts: [], loading: true })}
+        
+        {/* 8. Tim Ferriss */}
+        {renderPodcastCategory(famousPodcasters.find(c => c.id === 'timFerriss') || { id: 'timFerriss', title: 'The Tim Ferriss Show', podcasts: [], loading: true })}
+        
+        {/* 9. Jordan Peterson */}
+        {renderPodcastCategory(famousPodcasters.find(c => c.id === 'jordanPeterson') || { id: 'jordanPeterson', title: 'The Jordan B. Peterson Podcast', podcasts: [], loading: true })}
+        
+        {/* 10. Rich Roll */}
+        {renderPodcastCategory(famousPodcasters.find(c => c.id === 'richRoll') || { id: 'richRoll', title: 'Rich Roll Podcast', podcasts: [], loading: true })}
+        
+        {/* 11. Everyone's Talking About */}
         {renderPodcastCategory(categories.find(c => c.id === 'everyoneTalking') || { id: 'everyoneTalking', title: 'Everyone\'s Talking About', podcasts: [], loading: true })}
         
-        {/* 7. Musically Inclined */}
+        {/* 12. Musically Inclined */}
         {renderPodcastCategory(categories.find(c => c.id === 'musicallyInclined') || { id: 'musicallyInclined', title: 'Musically Inclined', podcasts: [], loading: true })}
         
         {/* 8. Mixed category with vertical layout for all podcasts - loaded in batches */}
