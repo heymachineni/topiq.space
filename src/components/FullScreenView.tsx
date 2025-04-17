@@ -875,12 +875,12 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
       case 'reddit':
         return {
           gradient: 'linear-gradient(135deg, #FF4500, #FF8C78)',
-          emoji: '👽'
+          emoji: '💻'
         };
       case 'oksurf':
         return {
           gradient: 'linear-gradient(135deg, #00C9FF, #92FE9D)',
-          emoji: '🏄'
+          emoji: '🌍'
         };
       case 'rss':
         return {
@@ -890,7 +890,7 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
       default:
         return {
           gradient: 'linear-gradient(135deg, #232526, #414345)',
-          emoji: '��'
+          emoji: '🌐'
         };
     }
   };
@@ -1103,7 +1103,7 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
                   className="absolute inset-0 w-full h-full flex items-center justify-center"
                   style={{ 
                     background: getSourceBackground(currentArticle.source).gradient,
-                    opacity: 0.4
+                    opacity: 1.0
                   }}
                 >
                   <div className="text-[120px] opacity-30">
@@ -1114,10 +1114,10 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
               <div className="absolute inset-0 bg-gradient-to-t from-black via-black/70 to-transparent" />
             </motion.div>
 
-            {/* Content container with increased bottom padding for mobile (60px total) */}
+            {/* Content container with increased bottom padding for mobile (76px total) */}
             <motion.div 
               className="absolute bottom-0 left-0 right-0 px-6 py-7 z-20 bg-black/30 backdrop-blur-md"
-              style={{ paddingBottom: 'calc(1.75rem + 60px)' }}
+              style={{ paddingBottom: 'calc(1.75rem + 76px)' }}
               initial={{ opacity: 0, y: 20 }}
               animate={{ 
                 opacity: 1, 
