@@ -178,71 +178,40 @@ export async function fetchRandomWikipediaArticle(): Promise<WikipediaArticle> {
   
   const fetchFn = async () => {
     try {
-      // First attempt to get a featured article with image
-      try {
-        // Try to get a featured article first (these usually have better content and images)
-        const featuredResponse = await axios.get('https://en.wikipedia.org/api/rest_v1/page/featured/today');
-        if (featuredResponse.data && featuredResponse.data.tfa) {
-          const data = featuredResponse.data.tfa;
-          
-          // Convert thumbnail to high-res
-          const highResThumbnail = getHighResImage(data.thumbnail);
-          
-          // Check if this featured article has a good quality image
-          if (!highResThumbnail || 
-              !highResThumbnail.source || 
-              highResThumbnail.source.includes("question") || 
-              (highResThumbnail.width && highResThumbnail.width < 800)) {
-            // Skip and try a random article instead
-            console.log('Featured article had low quality image, falling back to random');
-            throw new Error('Low quality image in featured article');
-          }
-          
-          return {
-            pageid: data.pageid,
-            title: data.title,
-            extract: data.extract || data.description,
-            extract_html: data.extract_html,
-            thumbnail: highResThumbnail,
-            description: data.description,
-            source: 'wikipedia' as ContentSource
-          };
-        }
-      } catch (featuredError) {
-        console.log('Could not fetch featured article, falling back to random:', featuredError);
-      }
-      
-      // Use the official Wikipedia API for random article with larger thumbnails
-      // Convert to REST API call with parameters to ensure high quality images
+      // Use the official Wikipedia API for random article with optimal thumbnail size
+      // balancing quality and performance
       const response = await axios.get('https://en.wikipedia.org/api/rest_v1/page/random/summary', {
         params: {
           redirect: false,
-          thumbsize: 1600  // Request a larger thumbnail - increased from 1024 to 1600
+          thumbsize: 800  // Reduced from 1600 to 800 for better performance while maintaining quality
         }
       });
       
       const data = response.data;
       
-      // Skip articles without thumbnails or with low quality images - enforcing minimum width of 800
+      // Skip articles without thumbnails or with poor quality content
       if (!data.thumbnail || 
           !data.thumbnail.source || 
           data.thumbnail.source.includes("question") || 
-          (data.thumbnail.width && data.thumbnail.width < 800)) {
-        // Try again recursively until we find a good image
-        console.log('Skipping article with low quality image, trying again');
+          (data.thumbnail.width && data.thumbnail.width < 400) ||
+          !data.extract ||
+          data.extract.length < 100) {
+        // Try again recursively until we find a good article
+        console.log('Skipping article with low quality content, trying again');
         return fetchRandomWikipediaArticle();
       }
       
-      // Convert thumbnail to high-res
+      // Convert thumbnail to high-res (but don't go overboard)
       const highResThumbnail = getHighResImage(data.thumbnail);
       
       return {
         pageid: data.pageid,
-        title: data.title,
+        title: data.title || data.displaytitle,
         extract: data.extract,
         extract_html: data.extract_html,
         thumbnail: highResThumbnail,
         description: data.description,
+        url: data.content_urls?.desktop?.page,
         source: 'wikipedia' as ContentSource
       };
     } catch (error) {
@@ -257,7 +226,7 @@ export async function fetchRandomWikipediaArticle(): Promise<WikipediaArticle> {
 
 export async function fetchRandomArticles(count: number = 10): Promise<WikipediaArticle[]> {
   try {
-    // Request extra articles to allow for quality filtering
+    // Increase buffer size to have more articles ready
     const requestCount = Math.ceil(count * 2); // Request double to ensure enough good quality ones
     
     // Fetch articles in parallel
@@ -273,8 +242,26 @@ export async function fetchRandomArticles(count: number = 10): Promise<Wikipedia
     
     // If we have more articles than requested after filtering, return only what was asked for
     if (highQualityArticles.length > count) {
-      return highQualityArticles.slice(0, count);
+      const slicedArticles = highQualityArticles.slice(0, count);
+      
+      // Preload images for smoother scrolling
+      preloadArticleImages(slicedArticles);
+      
+      // Buffer the next set of articles in the background
+      if (highQualityArticles.length > count + 10) {
+        // We already have a good buffer
+      } else {
+        setTimeout(() => {
+          console.log('Prefetching more articles in the background');
+          fetchRandomArticles(10).catch(err => console.error('Error prefetching articles:', err));
+        }, 2000);
+      }
+      
+      return slicedArticles;
     }
+    
+    // Preload images for the articles we're returning
+    preloadArticleImages(highQualityArticles);
     
     // Otherwise return all high quality articles we found
     return highQualityArticles;
@@ -282,6 +269,16 @@ export async function fetchRandomArticles(count: number = 10): Promise<Wikipedia
     console.error('Error fetching random articles:', error);
     throw error;
   }
+}
+
+// Helper function to preload article images
+function preloadArticleImages(articles: WikipediaArticle[]) {
+  articles.forEach(article => {
+    if (article.thumbnail?.source) {
+      const img = new Image();
+      img.src = article.thumbnail.source;
+    }
+  });
 }
 
 export async function fetchArticlesBySearch(searchTerm: string): Promise<WikipediaArticle[]> {
@@ -309,17 +306,19 @@ export async function fetchArticlesBySearch(searchTerm: string): Promise<Wikiped
           const response = await axios.get(`https://en.wikipedia.org/api/rest_v1/page/summary/${titleParam}`, {
             params: {
               redirect: false,
-              thumbsize: 1600 // Request larger thumbnails - increased from 1024 to 1600
+              thumbsize: 800 // Reduced from 1600 to 800 for better performance while maintaining quality
             }
           });
           
           const data = response.data;
           
-          // Skip articles without thumbnails or with low quality images
+          // Skip articles without thumbnails or with poor quality content
           if (!data.thumbnail || 
               !data.thumbnail.source || 
               data.thumbnail.source.includes("question") || 
-              (data.thumbnail.width && data.thumbnail.width < 800)) {
+              (data.thumbnail.width && data.thumbnail.width < 400) ||
+              !data.extract ||
+              data.extract.length < 100) {
             return null;
           }
           
@@ -328,10 +327,11 @@ export async function fetchArticlesBySearch(searchTerm: string): Promise<Wikiped
           
           return {
             pageid: data.pageid,
-            title: data.title,
+            title: data.title || data.displaytitle,
             extract: data.extract,
             thumbnail: highResThumbnail,
             description: data.description,
+            url: data.content_urls?.desktop?.page,
             source: 'wikipedia' as ContentSource
           };
         } catch (error) {
@@ -344,7 +344,12 @@ export async function fetchArticlesBySearch(searchTerm: string): Promise<Wikiped
       const articles = await Promise.all(articlePromises);
       
       // Filter out any null results
-      return articles.filter(article => article !== null);
+      const validArticles = articles.filter(article => article !== null);
+      
+      // Preload images for smoother experience
+      preloadArticleImages(validArticles);
+      
+      return validArticles;
     };
     
     return await getFromCacheOrFetch(cacheKey, fetchFn);
@@ -881,13 +886,13 @@ export async function fetchWikipediaCurrentEvents(count: number = 5): Promise<Wi
               if (!page.thumbnail || 
                   !page.thumbnail.source || 
                   page.thumbnail.source.includes("question") ||
-                  (page.thumbnail.width && page.thumbnail.width < 800)) {
+                  (page.thumbnail.width && page.thumbnail.width < 400)) {
                 // Try to get a better image through the REST API
                 try {
                   const pageDetails = await axios.get(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(page.title)}`, {
                     params: {
                       redirect: false,
-                      thumbsize: 1600 // Increased from 1024 to 1600 for higher resolution
+                      thumbsize: 800 // Reduced from 1600 to 800 for better performance while maintaining quality
                     }
                   });
                   
@@ -895,7 +900,7 @@ export async function fetchWikipediaCurrentEvents(count: number = 5): Promise<Wi
                       pageDetails.data.thumbnail && 
                       pageDetails.data.thumbnail.source &&
                       !pageDetails.data.thumbnail.source.includes("question") &&
-                      pageDetails.data.thumbnail.width >= 800) {
+                      pageDetails.data.thumbnail.width >= 400) {
                     // Use the better image
                     page.thumbnail = pageDetails.data.thumbnail;
                   } else {
@@ -945,6 +950,9 @@ export async function fetchWikipediaCurrentEvents(count: number = 5): Promise<Wi
         
         // Prioritize articles with thumbnails
         const withImages = validArticles.filter(article => article && article.thumbnail && article.thumbnail.source);
+        
+        // Preload images for smoother scrolling
+        preloadArticleImages(withImages);
         
         // Add articles without thumbnails only if needed to meet count
         if (withImages.length >= count) {

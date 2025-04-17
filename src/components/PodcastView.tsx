@@ -85,10 +85,12 @@ const PodcastView: React.FC<PodcastViewProps> = ({ onRefresh, tabNavigator, onPl
   // Load all podcast categories
   const loadAllPodcastCategories = async () => {
     setLoading(true);
+    console.log('⏳ Starting to load all podcast categories');
     
     // First load original trending podcasts
     try {
       const trendingPodcasts = await onRefresh();
+      console.log(`📱 Loaded ${trendingPodcasts.length} trending podcasts`);
       setAllPodcasts(trendingPodcasts);
       
       // Trending podcasts will only show in Mixed section now
@@ -100,6 +102,7 @@ const PodcastView: React.FC<PodcastViewProps> = ({ onRefresh, tabNavigator, onPl
     }
     
     // Load famous podcasters 
+    console.log('🎙️ Loading famous podcasters...');
     loadFamousPodcaster('lexFridman', 'lex fridman');
     loadFamousPodcaster('joeRogan', 'joe rogan');
     loadFamousPodcaster('hubermanLab', 'huberman lab');
@@ -110,6 +113,7 @@ const PodcastView: React.FC<PodcastViewProps> = ({ onRefresh, tabNavigator, onPl
     loadFamousPodcaster('richRoll', 'rich roll');
     
     // Load other categories
+    console.log('📚 Loading podcast categories...');
     loadCategoryPodcasts('newNoteworthy', 'new');
     loadCategoryPodcasts('topEpisodes', 'episodes');
     loadCategoryPodcasts('everyoneTalking', 'popular');
@@ -140,47 +144,101 @@ const PodcastView: React.FC<PodcastViewProps> = ({ onRefresh, tabNavigator, onPl
   
   // Load famous podcaster episodes
   const loadFamousPodcaster = async (podcasterId: string, searchTerm: string) => {
-    try {
-      const response = await fetch(
-        `https://itunes.apple.com/search?term=${encodeURIComponent(searchTerm)}&entity=podcast&limit=1`
-      );
-      const data = await response.json();
+    console.log(`🔍 Loading ${podcasterId} with search term: "${searchTerm}"`);
+    
+    // Define fallback search terms for common podcasters
+    const fallbackSearchTerms: Record<string, string[]> = {
+      'lexFridman': ['lex fridman podcast', 'lex friedman', 'fridman podcast'],
+      'joeRogan': ['joe rogan experience', 'jre podcast', 'rogan podcast'],
+      'hubermanLab': ['andrew huberman', 'huberman podcast', 'huberman lab podcast'],
+      'samHarris': ['making sense sam harris', 'waking up sam harris', 'sam harris podcast'],
+      'steveBartlett': ['diary of a ceo', 'steven bartlett', 'diary ceo'],
+      'timFerriss': ['tim ferriss show', 'timothy ferriss', 'ferriss podcast'],
+      'jordanPeterson': ['jordan b peterson', 'peterson podcast', 'dr peterson podcast'],
+      'richRoll': ['rich roll podcast', 'richroll', 'roll podcast']
+    };
+    
+    // Try primary search term first
+    const result = await tryFetchPodcaster(searchTerm);
+    if (result) {
+      updateFamousPodcasterPodcasts(podcasterId, result);
+      return;
+    }
+    
+    // If primary search failed, try fallbacks
+    const fallbacks = fallbackSearchTerms[podcasterId] || [];
+    for (const fallbackTerm of fallbacks) {
+      if (fallbackTerm === searchTerm) continue; // Skip if same as primary
       
-      if (data.results.length > 0) {
-        const podcastId = data.results[0].collectionId;
-        
-        // Get episodes from the podcast
-        const episodesResponse = await fetch(
-          `https://itunes.apple.com/lookup?id=${podcastId}&entity=podcastEpisode&limit=20`
-        );
-        const episodesData = await episodesResponse.json();
-        
-        // Transform to our format - skip the first result as it's the podcast itself
-        const episodes: PodcastEpisode[] = episodesData.results
-          .slice(1) // Skip the podcast entry, get only episodes
-          .map((item: any) => ({
-            id: item.trackId,
-            title: item.trackName,
-            description: item.description || '',
-            url: item.trackViewUrl,
-            datePublished: new Date(item.releaseDate).toLocaleDateString(),
-            duration: item.trackTimeMillis ? Math.floor(item.trackTimeMillis / 1000) : '',
-            image: item.artworkUrl600 || item.artworkUrl100,
-            feedTitle: data.results[0].collectionName,
-            feedUrl: item.feedUrl || '',
-            audio: item.previewUrl || ''
-          }));
-        
-        updateFamousPodcasterPodcasts(podcasterId, episodes);
+      console.log(`🔄 Trying fallback search for ${podcasterId}: "${fallbackTerm}"`);
+      const fallbackResult = await tryFetchPodcaster(fallbackTerm);
+      if (fallbackResult) {
+        updateFamousPodcasterPodcasts(podcasterId, fallbackResult);
+        return;
       }
-    } catch (error) {
-      console.error(`Error loading ${podcasterId} podcasts:`, error);
-      updateFamousPodcasterPodcasts(podcasterId, []);
+    }
+    
+    // If all searches failed
+    console.warn(`⚠️ All searches failed for ${podcasterId}`);
+    updateFamousPodcasterPodcasts(podcasterId, []);
+    
+    // Helper function to try fetching a podcaster
+    async function tryFetchPodcaster(term: string): Promise<PodcastEpisode[] | null> {
+      try {
+        const response = await fetch(
+          `https://itunes.apple.com/search?term=${encodeURIComponent(term)}&entity=podcast&limit=1`
+        );
+        const data = await response.json();
+        
+        if (data.results && data.results.length > 0) {
+          console.log(`✅ Found podcast for term "${term}": ${data.results[0].collectionName}`);
+          const podcastId = data.results[0].collectionId;
+          
+          // Get episodes from the podcast
+          console.log(`⏳ Fetching episodes for ID: ${podcastId}`);
+          const episodesResponse = await fetch(
+            `https://itunes.apple.com/lookup?id=${podcastId}&entity=podcastEpisode&limit=20`
+          );
+          const episodesData = await episodesResponse.json();
+          
+          if (episodesData.results && episodesData.results.length > 1) {
+            console.log(`✅ Found ${episodesData.results.length - 1} episodes`);
+            
+            // Transform to our format - skip the first result as it's the podcast itself
+            const episodes: PodcastEpisode[] = episodesData.results
+              .slice(1) // Skip the podcast entry, get only episodes
+              .map((item: any) => ({
+                id: item.trackId,
+                title: item.trackName,
+                description: item.description || '',
+                url: item.trackViewUrl,
+                datePublished: new Date(item.releaseDate).toLocaleDateString(),
+                duration: item.trackTimeMillis ? Math.floor(item.trackTimeMillis / 1000) : '',
+                image: item.artworkUrl600 || item.artworkUrl100,
+                feedTitle: data.results[0].collectionName,
+                feedUrl: item.feedUrl || '',
+                audio: item.previewUrl || ''
+              }));
+            
+            return episodes;
+          } else {
+            console.warn(`⚠️ No episodes found for term "${term}"`);
+            return null;
+          }
+        } else {
+          console.warn(`⚠️ No podcast found for search term "${term}"`);
+          return null;
+        }
+      } catch (error) {
+        console.error(`❌ Error loading podcasts for term "${term}":`, error);
+        return null;
+      }
     }
   };
   
   // Load category podcasts
   const loadCategoryPodcasts = async (categoryId: string, searchTerm: string) => {
+    console.log(`🔍 Loading category ${categoryId} with search term: "${searchTerm}"`);
     try {
       const genreParam = 
         categoryId === 'musicallyInclined' ? '&genreId=1310' : 
@@ -191,7 +249,9 @@ const PodcastView: React.FC<PodcastViewProps> = ({ onRefresh, tabNavigator, onPl
       );
       const data = await response.json();
       
-      if (data.results.length > 0) {
+      if (data.results && data.results.length > 0) {
+        console.log(`✅ Found ${data.results.length} podcasts for category ${categoryId}`);
+        
         // For podcast shows, we'll just get the shows and populate with placeholder episodes
         const podcasts: PodcastEpisode[] = await Promise.all(
           data.results.slice(0, 10).map(async (podcast: any) => {
@@ -202,7 +262,7 @@ const PodcastView: React.FC<PodcastViewProps> = ({ onRefresh, tabNavigator, onPl
               );
               const episodesData = await episodesResponse.json();
               
-              if (episodesData.results.length > 1) {
+              if (episodesData.results && episodesData.results.length > 1) {
                 const episode = episodesData.results[1]; // Index 1 is the first episode
                 return {
                   id: episode.trackId,
@@ -218,14 +278,14 @@ const PodcastView: React.FC<PodcastViewProps> = ({ onRefresh, tabNavigator, onPl
                 };
               }
             } catch (e) {
-              console.error('Error fetching episode:', e);
+              console.error(`❌ Error fetching episode for podcast in category ${categoryId}:`, e);
             }
             
             // Fallback if we can't get an episode
             return {
               id: podcast.collectionId,
               title: podcast.collectionName,
-              description: podcast.description || '',
+              description: podcast.collectionName,
               url: podcast.collectionViewUrl,
               datePublished: new Date(podcast.releaseDate).toLocaleDateString(),
               duration: '',
@@ -237,10 +297,14 @@ const PodcastView: React.FC<PodcastViewProps> = ({ onRefresh, tabNavigator, onPl
           })
         );
         
-        updateCategoryPodcasts(categoryId, podcasts);
+        console.log(`✅ Processed ${podcasts.length} podcasts for category ${categoryId}`);
+        updateCategoryPodcasts(categoryId, podcasts.filter(Boolean));
+      } else {
+        console.warn(`⚠️ No podcasts found for category ${categoryId} with search term "${searchTerm}"`);
+        updateCategoryPodcasts(categoryId, []);
       }
     } catch (error) {
-      console.error(`Error loading ${categoryId} podcasts:`, error);
+      console.error(`❌ Error loading category ${categoryId}:`, error);
       updateCategoryPodcasts(categoryId, []);
     }
   };
