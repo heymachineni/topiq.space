@@ -75,6 +75,65 @@ const isCacheValid = (cacheKey: string): boolean => {
   return now - API_CACHE[cacheKey].timestamp < CACHE_DURATION;
 };
 
+// Helper to safely check if localStorage is available
+const isLocalStorageAvailable = (): boolean => {
+  try {
+    if (typeof window === 'undefined') return false;
+    if (typeof localStorage === 'undefined') return false;
+    
+    const testKey = '__storage_test__';
+    localStorage.setItem(testKey, testKey);
+    localStorage.removeItem(testKey);
+    return true;
+  } catch (e) {
+    return false;
+  }
+};
+
+// Helper to get data from cache
+const getFromCache = (cacheKey: string): any | null => {
+  // First check in-memory cache
+  if (isCacheValid(cacheKey)) return API_CACHE[cacheKey].data;
+  
+  // Then check localStorage if available
+  if (isLocalStorageAvailable()) {
+    try {
+      const storedCache = localStorage.getItem(`apicache_${cacheKey}`);
+      if (storedCache) {
+        const parsedCache = JSON.parse(storedCache);
+        if (Date.now() - parsedCache.timestamp < CACHE_DURATION) {
+          // Also update the in-memory cache
+          API_CACHE[cacheKey] = parsedCache;
+          return parsedCache.data;
+        }
+      }
+    } catch (error) {
+      console.error('Error reading from localStorage:', error);
+    }
+  }
+  
+  return null;
+};
+
+// Helper to save data to cache
+const saveToCache = (cacheKey: string, data: any): void => {
+  // Update in-memory cache
+  API_CACHE[cacheKey] = {
+    timestamp: Date.now(),
+    data
+  };
+  
+  // Update localStorage if available
+  if (isLocalStorageAvailable()) {
+    try {
+      localStorage.setItem(`apicache_${cacheKey}`, JSON.stringify(API_CACHE[cacheKey]));
+    } catch (error) {
+      console.error('Error saving to localStorage:', error);
+      // If localStorage fails, we still have the in-memory cache
+    }
+  }
+};
+
 // Get data from cache or fetch new
 const getFromCacheOrFetch = async (cacheKey: string, fetchFn: () => Promise<any>): Promise<any> => {
   if (isCacheValid(cacheKey)) {
@@ -512,7 +571,7 @@ export async function fetchOnThisDayEvents(count: number = 5, fromCache: boolean
       if (article.thumbnail.source.includes('question')) return false;
       
       // Skip low-resolution images
-      if (article.thumbnail.width < 800) return false;
+      if (!article.thumbnail.width || article.thumbnail.width < 800) return false;
       
       return true;
     });
@@ -2481,3 +2540,36 @@ export const isGoodQualityImage = (image: any): boolean => {
   // Consider the image good quality if it passed all filters
   return true;
 };
+
+// Fetch a specific Wikipedia article by title
+export async function fetchWikipediaArticleByTitle(title: string, imageWidth: number = 1024): Promise<WikipediaArticle | null> {
+  try {
+    // Encode the title for URL safety
+    const encodedTitle = encodeURIComponent(title);
+    
+    // Use the Wikipedia REST API to get article summary
+    const response = await axios.get(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodedTitle}`, {
+      params: {
+        redirect: true
+      }
+    });
+    
+    const data = response.data;
+    
+    // Use utility to convert thumbnail to high-res
+    const highResThumbnail = data.thumbnail ? getHighResImage(data.thumbnail) : undefined;
+    
+    return {
+      pageid: data.pageid,
+      title: data.title,
+      extract: data.extract,
+      extract_html: data.extract_html,
+      thumbnail: highResThumbnail,
+      description: data.description,
+      source: 'wikipedia' as ContentSource
+    };
+  } catch (error) {
+    console.error(`Error fetching article data for ${title}:`, error);
+    return null;
+  }
+}
