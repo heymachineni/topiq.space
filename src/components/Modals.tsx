@@ -123,7 +123,7 @@ export const AboutModal = ({ isOpen, onClose }: { isOpen: boolean, onClose: () =
       {/* Middle section - Description */}
       <div className="px-5 py-6 flex-grow overflow-y-auto modal-scrollable-content" data-scroll-allowed="true">
   <p className="font-space text-white/90 leading-relaxed">
-    Explore the world with Topiq — a new way to learn, stay updated, and get inspired.
+    Explore the world with topiq — a new way to learn, stay updated, and get inspired.
     From Wikipedia to Reddit, headlines to podcasts — it’s all here.<br />
     Fast. Thoughtful. Made for how we think today.
   </p>
