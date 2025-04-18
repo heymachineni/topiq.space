@@ -17,8 +17,8 @@ import {
 
 // Batching configuration
 const REFRESH_INTERVAL = 2 * 60 * 60 * 1000; // Refresh every 2 hours
-const BATCH_SIZE = 20; // Number of articles to fetch in each batch
-const MAX_CACHED_ARTICLES = 100; // Maximum number of articles to keep in cache
+const BATCH_SIZE = 30; // Increased from 20 to 30 for better infinite scroll
+const MAX_CACHED_ARTICLES = 150; // Increased from 100 to ensure we have enough articles cached
 
 // Source distribution for a balanced content mix
 const SOURCES_CONFIG: Record<ContentSource, { weight: number }> = {
@@ -251,7 +251,7 @@ export const useWikipediaArticles = (initialCount: number = 10) => {
     
     try {
       // Increase the request count to ensure we get enough valid articles after filtering
-      const requestCount = count * 2;
+      const requestCount = count * 3; // Increased multiplier from 2 to 3
       
       // Fetch more articles directly
       const freshArticles = await fetchFreshArticles(requestCount);
@@ -280,12 +280,13 @@ export const useWikipediaArticles = (initialCount: number = 10) => {
         console.log("No new unique articles with images found, trying again with different sources");
         // If we didn't get any valid articles, try with a different source distribution
         const alternateSourceRequest: Partial<Record<ContentSource, number>> = {
-          wikipedia: Math.floor(requestCount * 0.4),
+          wikipedia: Math.floor(requestCount * 0.5), // Increased Wikipedia proportion
           reddit: Math.floor(requestCount * 0.3),
-          hackernews: Math.floor(requestCount * 0.2),
-          onthisday: Math.floor(requestCount * 0.1)
+          hackernews: Math.floor(requestCount * 0.15),
+          onthisday: Math.floor(requestCount * 0.05)
         };
         
+        // Try a broader search with alternative sources
         const alternateArticles = await fetchMultiSourceArticles(alternateSourceRequest);
         // Apply the same filtering
         const uniqueAlternateArticles = alternateArticles.filter(article => 
@@ -322,7 +323,48 @@ export const useWikipediaArticles = (initialCount: number = 10) => {
           const allArticles = [...cachedArticles, ...sortedNewArticles];
           saveArticlesToCache(allArticles.slice(0, MAX_CACHED_ARTICLES));
         } else {
-          console.log("Still couldn't find any valid articles, will try again later");
+          console.log("Still couldn't find any valid articles, trying with larger batch size");
+          
+          // Make one final attempt with an even larger batch and more sources
+          const lastAttemptRequest: Partial<Record<ContentSource, number>> = {
+            wikipedia: Math.floor(requestCount * 0.6),
+            reddit: Math.floor(requestCount * 0.4)
+          };
+          
+          const lastAttemptArticles = await fetchMultiSourceArticles(lastAttemptRequest);
+          const uniqueLastAttemptArticles = lastAttemptArticles.filter(article => 
+            !cachedIds.has(article.pageid) && 
+            !currentIds.has(article.pageid) &&
+            article.title && 
+            article.title.trim() !== ''
+            // Here we don't filter for thumbnail so we get at least some articles
+          );
+          
+          if (uniqueLastAttemptArticles.length > 0) {
+            const sortedFinalArticles = uniqueLastAttemptArticles.sort((a, b) => {
+              const aViewed = a.pageid ? viewedArticleIds.current.has(a.pageid) : false;
+              const bViewed = b.pageid ? viewedArticleIds.current.has(b.pageid) : false;
+              
+              if (aViewed && !bViewed) return 1; 
+              if (!aViewed && bViewed) return -1;
+              return 0;
+            });
+            
+            sortedFinalArticles.forEach(article => {
+              if (article.pageid) {
+                viewedArticleIds.current.add(article.pageid);
+                markArticleAsViewed(article);
+              }
+            });
+            
+            console.log(`Last attempt found ${sortedFinalArticles.length} articles`);
+            
+            setArticles(prev => [...prev, ...sortedFinalArticles]);
+            const allArticles = [...cachedArticles, ...sortedFinalArticles];
+            saveArticlesToCache(allArticles.slice(0, MAX_CACHED_ARTICLES));
+          } else {
+            console.log("All attempts failed to find new articles");
+          }
         }
       } else {
         // Sort so unviewed articles come first

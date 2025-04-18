@@ -349,10 +349,10 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
   useEffect(() => {
     // Initialize padding based on client-side window width
     if (typeof window !== 'undefined') {
-      setPaddingBottom(window.innerWidth < 768 ? 'calc(1.75rem + 56px)' : 'calc(1.75rem + 40px)');
+      setPaddingBottom(window.innerWidth < 768 ? 'calc(1.75rem + 76px)' : 'calc(1.75rem + 40px)');
       
       const handleResize = () => {
-        setPaddingBottom(window.innerWidth < 768 ? 'calc(1.75rem + 56px)' : 'calc(1.75rem + 40px)');
+        setPaddingBottom(window.innerWidth < 768 ? 'calc(1.75rem + 76px)' : 'calc(1.75rem + 40px)');
       };
       
       window.addEventListener('resize', handleResize);
@@ -837,11 +837,11 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
   useEffect(() => {
     // Function to check if we're nearing the end of the available articles
     const checkForInfiniteScroll = () => {
-      // If we're within 5 articles of the end, load more articles
-      if (articles.length - currentIndex <= 5 && !isLoadingBackgroundRef.current) {
+      // If we're within 15 articles of the end, load more articles (increased from 5)
+      if (articles.length - currentIndex <= 15 && !isLoadingBackgroundRef.current) {
         console.log(`Reached near end of articles (index ${currentIndex}/${articles.length}), loading more...`);
         isLoadingBackgroundRef.current = true;
-        loadMoreArticlesInBackground(20); // Request more articles
+        loadMoreArticlesInBackground(30); // Request more articles (increased from 20)
         // Reset the loading flag after a timeout
         setTimeout(() => {
           isLoadingBackgroundRef.current = false;
@@ -855,14 +855,14 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
     // Also set up a poll to periodically check and load more articles in the background
     // This ensures we always have articles ready, even if the user hasn't scrolled
     const backgroundLoadInterval = setInterval(() => {
-      if (articles.length - currentIndex <= 10 && !isLoadingBackgroundRef.current) {
+      if (articles.length - currentIndex <= 20 && !isLoadingBackgroundRef.current) {
         isLoadingBackgroundRef.current = true;
-        loadMoreArticlesInBackground(10);
+        loadMoreArticlesInBackground(20);
         setTimeout(() => {
           isLoadingBackgroundRef.current = false;
         }, 5000);
       }
-    }, 30000); // Check every 30 seconds
+    }, 15000); // Check more frequently (decreased from 30000)
     
     return () => {
       clearInterval(backgroundLoadInterval);
@@ -1184,22 +1184,6 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
                     />
                   )}
                   
-                  {/* View Podcasts button */}
-                  {relatedPodcasts.length > 0 && (
-                    <button 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setShowPodcastModal(true);
-                      }}
-                      className="inline-flex items-center text-white/80 font-space hover:text-white transition mt-3 mr-4"
-                    >
-                      <span className="mr-2">Listen ({relatedPodcasts.length})</span>
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                        <path fillRule="evenodd" d="M18 3a1 1 0 00-1.447-.894L8.763 6H5a3 3 0 000 6h.28l1.771 5.316A1 1 0 008 18h1a1 1 0 001-1v-4.382l6.553 3.276A1 1 0 0018 15V3z" clipRule="evenodd" />
-                      </svg>
-                    </button>
-                  )}
-                  
                   {/* Read more button */}
                   <button 
                     onClick={handleReadMore}
@@ -1268,29 +1252,6 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
           </motion.div>
         )}
       </AnimatePresence>
-      
-      {/* Bottom navigation buttons */}
-      <div className="absolute bottom-0 left-0 right-0 flex justify-between items-center p-4 bg-gradient-to-t from-black/80 to-transparent backdrop-blur-sm z-10">
-        <button 
-          onClick={goToPrevious}
-          className="w-12 h-12 flex items-center justify-center rounded-full bg-white/10 backdrop-blur-md"
-          aria-label="Previous article"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" className="w-6 h-6 text-white">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
-          </svg>
-        </button>
-        
-        <button 
-          onClick={goToNext}
-          className="w-12 h-12 flex items-center justify-center rounded-full bg-white/10 backdrop-blur-md"
-          aria-label="Next article"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" className="w-6 h-6 text-white">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-          </svg>
-        </button>
-      </div>
       
       {/* About modal with improved structure */}
       <AnimatePresence initial={false}>
