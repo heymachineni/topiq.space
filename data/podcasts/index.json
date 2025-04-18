@@ -1,0 +1,83 @@
+{
+  "podcasts": [
+    {
+      "id": "top-episodes",
+      "name": "Top Episodes",
+      "category": "top-episodes",
+      "count": 10,
+      "fetchedAt": "2025-04-18T07:15:21.095Z"
+    },
+    {
+      "id": "lex-fridman",
+      "name": "Lex Fridman Podcast",
+      "category": "technology",
+      "count": 10,
+      "fetchedAt": "2025-04-18T07:15:21.654Z"
+    },
+    {
+      "id": "joe-rogan",
+      "name": "The Joe Rogan Experience",
+      "category": "society",
+      "count": 10,
+      "fetchedAt": "2025-04-18T07:15:22.228Z"
+    },
+    {
+      "id": "huberman-lab",
+      "name": "Huberman Lab",
+      "category": "science",
+      "count": 10,
+      "fetchedAt": "2025-04-18T07:15:22.759Z"
+    },
+    {
+      "id": "everyones-talking",
+      "name": "Everyone's Talking About",
+      "category": "popular",
+      "count": 4,
+      "fetchedAt": "2025-04-18T07:15:23.260Z"
+    },
+    {
+      "id": "musically-inclined",
+      "name": "Musically Inclined",
+      "category": "music",
+      "count": 10,
+      "fetchedAt": "2025-04-18T07:15:23.921Z"
+    },
+    {
+      "id": "mixed",
+      "name": "Mixed",
+      "category": "mixed",
+      "count": 10,
+      "fetchedAt": "2025-04-18T07:15:24.476Z"
+    },
+    {
+      "id": "ted-talks-daily",
+      "name": "TED Talks Daily",
+      "category": "educational",
+      "count": 10,
+      "fetchedAt": "2025-04-18T07:15:24.881Z"
+    },
+    {
+      "id": "freakonomics",
+      "name": "Freakonomics Radio",
+      "category": "society",
+      "count": 10,
+      "fetchedAt": "2025-04-18T07:15:25.371Z"
+    },
+    {
+      "id": "planet-money",
+      "name": "Planet Money",
+      "category": "business",
+      "count": 10,
+      "fetchedAt": "2025-04-18T07:15:25.930Z"
+    },
+    {
+      "id": "stuff-you-should-know",
+      "name": "Stuff You Should Know",
+      "category": "educational",
+      "count": 10,
+      "fetchedAt": "2025-04-18T07:15:26.340Z"
+    }
+  ],
+  "count": 11,
+  "fetchedAt": "2025-04-18T07:15:26.341Z"
+}

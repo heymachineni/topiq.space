@@ -23,53 +23,86 @@ const CONFIG = {
 
 // List of podcasts to fetch
 const PODCASTS = [
+  // New & Noteworthy
+  {
+    id: 'new-noteworthy',
+    name: 'New & Noteworthy',
+    itunesId: '1534243784', // Example: TED Tech
+    category: 'new-noteworthy'
+  },
+  // Top Episodes
+  {
+    id: 'top-episodes',
+    name: 'Top Episodes',
+    itunesId: '1441595858', // Example: SmartLess
+    category: 'top-episodes'
+  },
+  // Lex Fridman
+  {
+    id: 'lex-fridman',
+    name: 'Lex Fridman Podcast',
+    itunesId: '1434243584',
+    category: 'technology'
+  },
+  // Joe Rogan
+  {
+    id: 'joe-rogan',
+    name: 'The Joe Rogan Experience',
+    itunesId: '360084272',
+    category: 'society'
+  },
+  // Huberman Lab
+  {
+    id: 'huberman-lab',
+    name: 'Huberman Lab',
+    itunesId: '1545953110',
+    category: 'science'
+  },
+  // Everyone's Talking About
+  {
+    id: 'everyones-talking',
+    name: "Everyone's Talking About",
+    itunesId: '1200361736', // Example: The Daily
+    category: 'popular'
+  },
+  // Musically Inclined
+  {
+    id: 'musically-inclined',
+    name: 'Musically Inclined',
+    itunesId: '1635211340', // Example: 60 Songs That Explain the '90s
+    category: 'music'
+  },
+  // Mixed
+  {
+    id: 'mixed',
+    name: 'Mixed',
+    itunesId: '1028908750', // Example: Radiolab
+    category: 'mixed'
+  },
+  // Additional popular podcasts
   {
     id: 'ted-talks-daily',
     name: 'TED Talks Daily',
-    url: 'https://feeds.feedburner.com/TEDTalks_audio',
+    itunesId: '160904630',
     category: 'educational'
-  },
-  {
-    id: 'radiolab',
-    name: 'Radiolab',
-    url: 'https://feeds.simplecast.com/ZoXX5JFa',
-    category: 'science'
   },
   {
     id: 'freakonomics',
     name: 'Freakonomics Radio',
-    url: 'https://feeds.simplecast.com/Y8lFbOT4',
+    itunesId: '354668519',
     category: 'society'
   },
   {
     id: 'planet-money',
     name: 'Planet Money',
-    url: 'https://feeds.npr.org/510289/podcast.xml',
+    itunesId: '290783428',
     category: 'business'
   },
   {
     id: 'stuff-you-should-know',
     name: 'Stuff You Should Know',
-    url: 'https://feeds.megaphone.fm/stuffyoushouldknow',
+    itunesId: '278981407',
     category: 'educational'
-  },
-  {
-    id: 'hidden-brain',
-    name: 'Hidden Brain',
-    url: 'https://feeds.simplecast.com/mMkO6v6Q',
-    category: 'psychology'
-  },
-  {
-    id: 'this-american-life',
-    name: 'This American Life',
-    url: 'https://www.thisamericanlife.org/podcast/rss.xml',
-    category: 'storytelling'
-  },
-  {
-    id: 'science-vs',
-    name: 'Science Vs',
-    url: 'https://feeds.megaphone.fm/sciencevs',
-    category: 'science'
   }
 ];
 
@@ -110,174 +143,47 @@ function fetchUrl(url) {
 }
 
 /**
- * Parse XML content to extract podcast episodes
- */
-function parsePodcastFeed(xml) {
-  const episodes = [];
-  
-  // Parse for <item> elements - simplified regex parser
-  // In production, use a proper XML parser
-  const itemRegex = /<item>[\s\S]*?<title>([\s\S]*?)<\/title>[\s\S]*?<link>([\s\S]*?)<\/link>[\s\S]*?<enclosure[^>]*url="([^"]*)"[^>]*length="([^"]*)"[^>]*type="([^"]*)"[^>]*\/>[\s\S]*?<pubDate>([\s\S]*?)<\/pubDate>[\s\S]*?<\/item>/g;
-  const descriptionRegex = /<description>([\s\S]*?)<\/description>/;
-  const durationRegex = /<itunes:duration>([\s\S]*?)<\/itunes:duration>/;
-  const imageRegex = /<itunes:image href="([^"]*)"\/>/;
-  
-  let match;
-  while ((match = itemRegex.exec(xml)) !== null) {
-    const item = xml.substring(match.index, match.index + match[0].length);
-    
-    // Extract description
-    const descMatch = item.match(descriptionRegex);
-    const description = descMatch ? cleanDescription(descMatch[1]) : '';
-    
-    // Extract duration
-    const durMatch = item.match(durationRegex);
-    const duration = durMatch ? durMatch[1] : '';
-    
-    // Extract image
-    const imgMatch = item.match(imageRegex);
-    const image = imgMatch ? imgMatch[1] : '';
-    
-    episodes.push({
-      title: decodeHtmlEntities(match[1].trim()),
-      link: match[2].trim(),
-      audioUrl: match[3].trim(),
-      fileSize: parseInt(match[4], 10) || 0,
-      mimeType: match[5].trim(),
-      pubDate: match[6].trim(),
-      description: description,
-      duration: formatDuration(duration),
-      image: image
-    });
-  }
-  
-  return episodes;
-}
-
-/**
- * Clean HTML from description
- */
-function cleanDescription(html) {
-  // Remove HTML tags
-  let text = html.replace(/<[^>]*>/g, ' ');
-  
-  // Decode HTML entities
-  text = decodeHtmlEntities(text);
-  
-  // Remove excessive whitespace
-  text = text.replace(/\s+/g, ' ').trim();
-  
-  // Limit to reasonable length
-  const maxLength = 500;
-  if (text.length > maxLength) {
-    text = text.substring(0, maxLength) + '...';
-  }
-  
-  return text;
-}
-
-/**
- * Decode HTML entities
- */
-function decodeHtmlEntities(text) {
-  return text
-    .replace(/&quot;/g, '"')
-    .replace(/&apos;/g, "'")
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&amp;/g, '&')
-    .replace(/&#(\d+);/g, (match, dec) => String.fromCharCode(dec));
-}
-
-/**
- * Format duration to standard format
- */
-function formatDuration(duration) {
-  // Handle different duration formats
-  if (!duration) return '';
-  
-  // If it's already in HH:MM:SS format, return as is
-  if (/^\d+:\d+:\d+$/.test(duration)) return duration;
-  
-  // If it's in MM:SS format, add hours
-  if (/^\d+:\d+$/.test(duration)) return `0:${duration}`;
-  
-  // If it's just seconds
-  if (/^\d+$/.test(duration)) {
-    const seconds = parseInt(duration, 10);
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    const secs = seconds % 60;
-    return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-  }
-  
-  return duration;
-}
-
-/**
- * Transform podcast episodes to our format
- */
-function transformPodcastEpisodes(episodes, podcastId, podcastName, category) {
-  return episodes.map((episode, index) => {
-    // Parse date
-    let pubDate = new Date();
-    try {
-      pubDate = new Date(episode.pubDate);
-      if (isNaN(pubDate.getTime())) {
-        pubDate = new Date();
-      }
-    } catch (e) {
-      console.warn(`Invalid date format: ${episode.pubDate}`);
-    }
-    
-    return {
-      id: `${podcastId}-${index}`,
-      podcastId: podcastId,
-      podcastName: podcastName,
-      title: episode.title,
-      description: episode.description,
-      audioUrl: episode.audioUrl,
-      duration: episode.duration,
-      fileSize: episode.fileSize,
-      mimeType: episode.mimeType,
-      link: episode.link,
-      image: episode.image,
-      publishDate: pubDate.toISOString(),
-      category: category,
-      dateAdded: new Date().toISOString()
-    };
-  });
-}
-
-/**
- * Fetch podcast episodes
+ * Fetch podcast episodes from iTunes API
  */
 async function fetchPodcast(podcast) {
   console.log(`Fetching podcast: ${podcast.name} (${podcast.id})...`);
   
   try {
-    // Fetch feed content
-    const xml = await fetchUrl(podcast.url);
+    // Lookup the podcast in iTunes
+    const lookupUrl = `https://itunes.apple.com/lookup?id=${podcast.itunesId}&entity=podcastEpisode&limit=20`;
+    const data = await fetchUrl(lookupUrl);
+    const parsedData = JSON.parse(data);
     
-    // Parse RSS items
-    const episodes = parsePodcastFeed(xml);
-    
-    console.log(`Found ${episodes.length} episodes in podcast ${podcast.id}`);
-    
-    if (episodes.length === 0) {
-      console.warn(`No episodes found in podcast: ${podcast.id}`);
+    if (!parsedData.results || parsedData.results.length <= 1) {
+      console.warn(`No episodes found for podcast: ${podcast.id}`);
       return [];
     }
     
-    // Transform to our format
-    const transformedEpisodes = transformPodcastEpisodes(
-      episodes.slice(0, CONFIG.EPISODES_PER_PODCAST), 
-      podcast.id,
-      podcast.name,
-      podcast.category
-    );
+    // First result is the podcast itself, rest are episodes
+    const podcastInfo = parsedData.results[0];
+    const episodes = parsedData.results.slice(1);
     
-    return transformedEpisodes;
+    console.log(`Found ${episodes.length} episodes in podcast ${podcast.id}`);
+    
+    // Transform to our format
+    const transformedEpisodes = episodes.map((episode, index) => ({
+      id: `${podcast.id}-${index}`,
+      podcastId: podcast.id,
+      podcastName: podcast.name,
+      title: episode.trackName || 'Untitled Episode',
+      description: episode.description || podcast.name,
+      audioUrl: episode.episodeUrl || episode.previewUrl || '',
+      duration: formatMilliseconds(episode.trackTimeMillis),
+      fileSize: episode.trackTimeMillis || 0,
+      mimeType: 'audio/mpeg',
+      link: episode.trackViewUrl || '',
+      image: episode.artworkUrl600 || podcastInfo.artworkUrl600 || '',
+      publishDate: new Date(episode.releaseDate).toISOString(),
+      category: podcast.category,
+      dateAdded: new Date().toISOString()
+    }));
+    
+    return transformedEpisodes.slice(0, CONFIG.EPISODES_PER_PODCAST);
   } catch (error) {
     console.error(`Error fetching ${podcast.id}: ${error.message}`);
     return [];
@@ -285,110 +191,104 @@ async function fetchPodcast(podcast) {
 }
 
 /**
+ * Format milliseconds to HH:MM:SS
+ */
+function formatMilliseconds(ms) {
+  if (!ms) return '00:00:00';
+  
+  const totalSeconds = Math.floor(ms / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  
+  return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+}
+
+/**
  * Fetch all podcasts
  */
 async function fetchAllPodcasts() {
-  console.log(`Fetching ${PODCASTS.length} podcasts...`);
-  
-  const podcastResults = {};
-  const allEpisodes = [];
+  const results = {};
   
   for (const podcast of PODCASTS) {
-    let episodes = [];
-    let retryCount = 0;
-    
-    while (episodes.length === 0 && retryCount < CONFIG.MAX_RETRIES) {
-      episodes = await fetchPodcast(podcast);
+    try {
+      console.log(`\nProcessing podcast: ${podcast.name}`);
+      const episodes = await fetchPodcast(podcast);
       
-      if (episodes.length === 0) {
-        retryCount++;
-        if (retryCount < CONFIG.MAX_RETRIES) {
-          console.log(`Retrying ${podcast.id} (attempt ${retryCount + 1}/${CONFIG.MAX_RETRIES})...`);
-        }
+      if (episodes.length > 0) {
+        results[podcast.id] = {
+          id: podcast.id,
+          name: podcast.name,
+          category: podcast.category,
+          episodes: episodes,
+          count: episodes.length,
+          fetchedAt: new Date().toISOString()
+        };
+        
+        // Save individual podcast file
+        savePodcastToFile(podcast.id, results[podcast.id]);
+      } else {
+        console.warn(`Skipping ${podcast.id} due to no episodes found`);
       }
+    } catch (error) {
+      console.error(`Failed to process ${podcast.id}: ${error.message}`);
     }
-    
-    // Record results
-    podcastResults[podcast.id] = {
-      name: podcast.name,
-      url: podcast.url,
-      count: episodes.length,
-      success: episodes.length > 0
-    };
-    
-    // Add to all episodes
-    allEpisodes.push(...episodes);
-    
-    // Save individual podcast data
-    savePodcastToFile(podcast.id, episodes);
   }
   
-  return {
-    episodes: allEpisodes,
-    podcastResults: podcastResults
-  };
+  // Create an index file with all podcasts
+  savePodcastsIndex(results);
+  
+  return results;
 }
 
 /**
- * Save podcast episodes to individual files
+ * Save podcast data to file
  */
-function savePodcastToFile(podcastId, episodes) {
-  if (episodes.length === 0) return;
-  
+function savePodcastToFile(podcastId, data) {
   const filePath = path.join(dataDir, `${podcastId}.json`);
   
-  const outputData = {
-    podcastId: podcastId,
-    episodes: episodes,
-    count: episodes.length,
-    fetchedAt: new Date().toISOString()
-  };
-  
-  fs.writeFileSync(filePath, JSON.stringify(outputData, null, 2));
-  console.log(`Saved ${episodes.length} episodes of ${podcastId} to ${filePath}`);
+  try {
+    fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+    console.log(`Saved podcast data to ${filePath}`);
+  } catch (error) {
+    console.error(`Failed to save podcast data for ${podcastId}: ${error.message}`);
+  }
 }
 
 /**
- * Save all podcasts metadata to index file
+ * Save index of all podcasts
  */
 function savePodcastsIndex(data) {
   const filePath = path.join(dataDir, 'index.json');
   
-  const outputData = {
-    podcasts: Object.keys(data.podcastResults).map(id => ({
-      id: id,
-      name: data.podcastResults[id].name,
-      episodeCount: data.podcastResults[id].count,
-      category: PODCASTS.find(p => p.id === id)?.category || 'other'
+  const indexData = {
+    podcasts: Object.values(data).map(podcast => ({
+      id: podcast.id,
+      name: podcast.name,
+      category: podcast.category,
+      count: podcast.count,
+      fetchedAt: podcast.fetchedAt
     })),
-    totalEpisodes: data.episodes.length,
-    totalPodcasts: Object.keys(data.podcastResults).length,
+    count: Object.keys(data).length,
     fetchedAt: new Date().toISOString()
   };
   
-  fs.writeFileSync(filePath, JSON.stringify(outputData, null, 2));
-  console.log(`Saved podcasts index to ${filePath}`);
-  
-  // Print podcast results summary
-  console.log('\nPodcast Results:');
-  for (const [podcastId, result] of Object.entries(data.podcastResults)) {
-    console.log(`- ${result.name}: ${result.count} episodes ${result.success ? '✅' : '❌'}`);
+  try {
+    fs.writeFileSync(filePath, JSON.stringify(indexData, null, 2));
+    console.log(`Saved podcasts index to ${filePath}`);
+  } catch (error) {
+    console.error(`Failed to save podcasts index: ${error.message}`);
   }
 }
 
 /**
- * Main execution function
+ * Main function
  */
 async function main() {
   console.log('Starting podcast fetch...');
   
   try {
-    // Fetch all podcasts
-    const data = await fetchAllPodcasts();
-    
-    // Save index file
-    savePodcastsIndex(data);
-    
+    await fetchAllPodcasts();
     console.log('\nAll podcasts fetched and saved successfully! 🎉');
   } catch (error) {
     console.error('Error during execution:', error);

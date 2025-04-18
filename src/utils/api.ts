@@ -192,6 +192,21 @@ export async function fetchRandomWikipediaArticle(): Promise<WikipediaArticle> {
   
   const fetchFn = async () => {
     try {
+      // Try to load from static data first
+      try {
+        // Use axios to load the static data file
+        const staticResponse = await axios.get('/data/wiki.json');
+        const staticData = staticResponse.data;
+        if (staticData && staticData.articles && staticData.articles.length > 0) {
+          // Get a random article from the static data
+          const randomArticle = staticData.articles[Math.floor(Math.random() * staticData.articles.length)];
+          console.log('Using static Wikipedia article data');
+          return randomArticle;
+        }
+      } catch (staticError) {
+        console.log('No static data available, falling back to API');
+      }
+      
       // Use the official Wikipedia API for random article with optimal thumbnail size
       // balancing quality and performance
       const response = await axios.get('https://en.wikipedia.org/api/rest_v1/page/random/summary', {
@@ -1538,471 +1553,200 @@ export const isAstronomyTopic = (topic: string): boolean => {
   return astronomyKeywords.some(keyword => lowerTopic.includes(keyword));
 };
 
-// PodcastIndex.org API Integration
+// ========== PODCAST API ==========
+
+// Podcast Episode interface
 export interface PodcastEpisode {
-  id: number;
+  id: number | string;
   title: string;
   description: string;
-  url: string;
-  datePublished: string;
-  duration: number | string; // Allow both number and string formats for duration
+  url?: string;
+  datePublished?: string;
+  publishDate?: string;
+  duration?: number | string;
   image?: string;
-  feedTitle: string;
-  feedUrl: string;
+  feedTitle?: string;
+  feedUrl?: string;
   feedImage?: string;
   categories?: string[];
   audio?: string;
+  audioUrl?: string;
+  podcastId?: string;
+  podcastName?: string;
 }
-
-// Format seconds to readable duration (MM:SS or HH:MM:SS)
-const formatDuration = (seconds: number): string => {
-  if (!seconds) return "00:00";
-  
-  const hours = Math.floor(seconds / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-  const remainingSeconds = seconds % 60;
-  
-  if (hours > 0) {
-    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
-  }
-  
-  return `${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
-};
 
 // Search for podcast episodes by topic
 export const searchPodcastEpisodes = async (term: string, limit: number = 5): Promise<PodcastEpisode[]> => {
   try {
-    // Use iTunes Search API instead of PodcastIndex
-    const response = await axios.get(
-      'https://itunes.apple.com/search',
-      {
-        params: {
-          term,
-          media: 'podcast',
-          entity: 'podcast',
-          limit: 10,
-          country: 'US'
+    // Try to load from static data first
+    try {
+      console.log('Using static podcast data for search');
+      const response = await axios.get('/data/podcasts/index.json');
+      const indexData = response.data;
+      
+      // Search across all podcasts
+      const results: PodcastEpisode[] = [];
+      
+      // For each podcast in the index, get its episodes
+      for (const podcast of indexData.podcasts) {
+        try {
+          const podcastResponse = await axios.get(`/data/podcasts/${podcast.id}.json`);
+          const podcastData = podcastResponse.data;
+          
+          if (podcastData && podcastData.episodes) {
+            // Filter episodes by the search term
+            const matchingEpisodes = podcastData.episodes.filter((episode: PodcastEpisode) => 
+              episode.title.toLowerCase().includes(term.toLowerCase()) ||
+              episode.description.toLowerCase().includes(term.toLowerCase()) ||
+              podcastData.name.toLowerCase().includes(term.toLowerCase())
+            );
+            
+            results.push(...matchingEpisodes);
+          }
+        } catch (podcastErr) {
+          console.warn(`Couldn't load podcast ${podcast.id}:`, podcastErr);
         }
       }
-    );
-    
-    if (!response.data?.results?.length) {
+      
+      return results.slice(0, limit);
+    } catch (staticError) {
+      console.warn('Static podcast data not available for search, showing placeholder:', staticError);
+      // Return empty results for production
       return [];
     }
-    
-    // Process and format the response
-    const podcasts = response.data.results.slice(0, limit);
-    
-    // For each podcast, fetch the latest episodes
-    const podcastsWithEpisodes = await Promise.all(
-      podcasts.map(async (podcast: any) => {
-        try {
-          const episodesResponse = await axios.get(
-            'https://itunes.apple.com/lookup',
-            {
-              params: {
-                id: podcast.collectionId,
-                entity: 'podcastEpisode',
-                limit: 3
-              }
-            }
-          );
-          
-          if (episodesResponse.data?.results?.length > 1) {
-            // First result is the podcast itself, rest are episodes
-            const episodes = episodesResponse.data.results.slice(1);
-            return episodes.map((episode: any) => ({
-              id: episode.trackId,
-              title: episode.trackName || 'Untitled Episode',
-              description: episode.description || podcast.collectionName,
-              url: episode.previewUrl || episode.trackViewUrl,
-              audio: episode.episodeUrl || episode.previewUrl,
-              datePublished: new Date(episode.releaseDate).toLocaleDateString(),
-              duration: formatMilliseconds(episode.trackTimeMillis),
-              image: getBestPodcastImage(episode.artworkUrl600, podcast.artworkUrl600, podcast.artworkUrl100),
-              feedTitle: podcast.collectionName,
-              feedUrl: podcast.feedUrl,
-              feedImage: getBestPodcastImage(podcast.artworkUrl600, podcast.artworkUrl100),
-              categories: [podcast.primaryGenreName]
-            }));
-          }
-          
-          // If no episodes found, return the podcast info as a placeholder
-          return [{
-            id: podcast.collectionId,
-            title: podcast.collectionName,
-            description: podcast.collectionName,
-            url: podcast.collectionViewUrl,
-            audio: '',
-            datePublished: new Date(podcast.releaseDate).toLocaleDateString(),
-            duration: '00:00',
-            image: getBestPodcastImage(podcast.artworkUrl600, podcast.artworkUrl100),
-            feedTitle: podcast.collectionName,
-            feedUrl: podcast.feedUrl,
-            feedImage: getBestPodcastImage(podcast.artworkUrl600, podcast.artworkUrl100),
-            categories: [podcast.primaryGenreName]
-          }];
-        } catch (error) {
-          console.error('Error fetching podcast episodes:', error);
-          return [];
-        }
-      })
-    );
-    
-    // Flatten the array of arrays
-    return podcastsWithEpisodes.flat();
   } catch (error) {
     console.error('Error searching podcast episodes:', error);
     return [];
   }
 };
 
-// Format milliseconds to mm:ss format
-const formatMilliseconds = (ms: number): string => {
-  if (!ms) return '00:00';
-  
-  const totalSeconds = Math.floor(ms / 1000);
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  
-  return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-};
-
 // Search for trending podcasts
 export const fetchTrendingPodcasts = async (limit: number = 10): Promise<PodcastEpisode[]> => {
   try {
-    // Use a dedicated cache key for podcasts
-    const cacheKey = 'podcasts_trending';
-    
-    // Try to get from cache first (with 30 minute expiration)
-    const cachedData = localStorage.getItem(cacheKey);
-    if (cachedData) {
-      try {
-        const parsedCache = JSON.parse(cachedData);
-        if (parsedCache.timestamp && (Date.now() - parsedCache.timestamp < 30 * 60 * 1000)) {
-          console.log('Using cached podcast data');
-          return parsedCache.data;
-        }
-      } catch (e) {
-        console.error('Failed to parse podcast cache:', e);
-        // Cache was invalid, continue with fetch
-      }
-    }
-    
-    // Calculate how many podcasts to request from iTunes to ensure we get enough with episodes
-    // Request 2.5x more than needed since not all will have valid episodes
-    const requestLimit = Math.min(200, Math.ceil(limit * 2.5)); 
-    
-    // Use iTunes charts API to get popular podcasts with a focus on content with audio streams
-    const response = await axios.get(
-      'https://itunes.apple.com/search',
-      {
-        params: {
-          term: 'podcast',
-          media: 'podcast',
-          entity: 'podcast',
-          // Use attributes to get better audio results
-          attribute: 'titleTerm',
-          limit: requestLimit,
-          country: 'US'
-        },
-        timeout: 8000 // Increase timeout for reliability
-      }
-    );
-    
-    if (!response.data?.results?.length) {
-      // Fallback: use sample data if API fails
-      return generateSamplePodcasts(limit);
-    }
-    
-    // Process and format the response
-    const podcasts = response.data.results;
-    
-    // For each podcast, fetch the latest episodes
-    // Use Promise.allSettled to prevent one failure from affecting all requests
-    const podcastsWithEpisodes = await Promise.allSettled(
-      podcasts.map(async (podcast: any) => {
-        try {
-          const episodesResponse = await axios.get(
-            'https://itunes.apple.com/lookup',
-            {
-              params: {
-                id: podcast.collectionId,
-                entity: 'podcastEpisode',
-                limit: 10 // Increased from 5 to 10 episodes per podcast
-              },
-              timeout: 5000 // Add timeout to prevent hanging requests
-            }
-          );
-          
-          if (episodesResponse.data?.results?.length > 1) {
-            // First result is the podcast itself, rest are episodes
-            const episodes = episodesResponse.data.results.slice(1);
-            return episodes.map((episode: any) => ({
-              id: episode.trackId,
-              title: episode.trackName || 'Untitled Episode',
-              description: episode.description || podcast.collectionName,
-              url: episode.previewUrl || episode.trackViewUrl,
-              audio: episode.episodeUrl || episode.previewUrl || episode.trackViewUrl,
-              datePublished: new Date(episode.releaseDate).toLocaleDateString(),
-              duration: formatMilliseconds(episode.trackTimeMillis),
-              image: getBestPodcastImage(episode.artworkUrl600, podcast.artworkUrl600, podcast.artworkUrl100),
-              feedTitle: podcast.collectionName,
-              feedUrl: podcast.feedUrl,
-              feedImage: getBestPodcastImage(podcast.artworkUrl600, podcast.artworkUrl100),
-              categories: [podcast.primaryGenreName]
-            }));
-          }
-          
-          // If no episodes found, return the podcast info as a placeholder
-          return [{
-            id: podcast.collectionId,
-            title: podcast.collectionName,
-            description: podcast.collectionName,
-            url: podcast.collectionViewUrl,
-            audio: '',
-            datePublished: new Date(podcast.releaseDate).toLocaleDateString(),
-            duration: '00:00',
-            image: getBestPodcastImage(podcast.artworkUrl600, podcast.artworkUrl100),
-            feedTitle: podcast.collectionName,
-            feedUrl: podcast.feedUrl,
-            feedImage: getBestPodcastImage(podcast.artworkUrl600, podcast.artworkUrl100),
-            categories: [podcast.primaryGenreName]
-          }];
-        } catch (error) {
-          console.error('Error fetching podcast episodes:', error);
-          return [];
-        }
-      })
-    );
-    
-    // Process results from Promise.allSettled
-    const allEpisodes = podcastsWithEpisodes
-      .filter(result => result.status === 'fulfilled')
-      .map(result => (result as PromiseFulfilledResult<PodcastEpisode[]>).value)
-      .flat();
-    
-    // Filter valid episodes (with audio) and take up to the limit
-    const validEpisodes = allEpisodes
-      .filter(podcast => podcast.audio)
-      .slice(0, limit);
+    // Try to load from static data first
+    try {
+      console.log('Using static podcast data for trending');
       
-    // Save to cache for faster future loads
-    if (validEpisodes.length > 0) {
-      try {
-        localStorage.setItem(cacheKey, JSON.stringify({
-          timestamp: Date.now(),
-          data: validEpisodes
-        }));
-      } catch (e) {
-        console.error('Failed to cache podcast data:', e);
+      // Load the index
+      const indexResponse = await axios.get('/data/podcasts/index.json');
+      const indexData = indexResponse.data;
+      
+      if (!indexData || !indexData.podcasts || indexData.podcasts.length === 0) {
+        throw new Error('No podcasts in index');
       }
+      
+      // Get random podcasts from the index
+      const randomPodcasts = [...indexData.podcasts]
+        .sort(() => 0.5 - Math.random())  // Shuffle
+        .slice(0, Math.min(3, indexData.podcasts.length));  // Take a few
+      
+      // Get episodes from each podcast
+      const allEpisodes: PodcastEpisode[] = [];
+      
+      for (const podcast of randomPodcasts) {
+        try {
+          const podcastResponse = await axios.get(`/data/podcasts/${podcast.id}.json`);
+          const podcastData = podcastResponse.data;
+          
+          if (podcastData && podcastData.episodes) {
+            allEpisodes.push(...podcastData.episodes);
+          }
+        } catch (podcastErr) {
+          console.warn(`Couldn't load podcast ${podcast.id}:`, podcastErr);
+        }
+      }
+      
+      // Randomize and limit
+      return allEpisodes
+        .sort(() => 0.5 - Math.random())
+        .slice(0, limit);
+    } catch (staticError) {
+      console.warn('Static podcast data not available for trending, showing placeholder:', staticError);
+      // Return empty results for production
+      return [];
     }
-    
-    return validEpisodes;
   } catch (error) {
     console.error('Error fetching trending podcasts:', error);
-    return generateSamplePodcasts(limit);
+    return [];
   }
-};
-
-// Generate sample podcast data for offline/fallback use
-const generateSamplePodcasts = (count: number): PodcastEpisode[] => {
-  const samplePodcasts: PodcastEpisode[] = [
-    {
-      id: 1001,
-      title: "The Daily",
-      description: "This is what the news should sound like. The biggest stories of our time, told by the best journalists.",
-      url: "https://www.nytimes.com/column/the-daily",
-      audio: "https://rss.art19.com/episodes/01a3a482-c8e0-4bf6-b0af-f002f0a3a86a.mp3",
-      datePublished: new Date().toLocaleDateString(),
-      duration: "25:00",
-      image: "https://is1-ssl.mzstatic.com/image/thumb/Podcasts125/v4/89/51/48/895148d6-fe7b-e79c-6e06-71d540399aa3/mza_9278186528825138484.jpg/600x600bb.jpg",
-      feedTitle: "The New York Times",
-      feedUrl: "https://feeds.simplecast.com/54nAGcIl",
-      feedImage: "https://is1-ssl.mzstatic.com/image/thumb/Podcasts125/v4/89/51/48/895148d6-fe7b-e79c-6e06-71d540399aa3/mza_9278186528825138484.jpg/600x600bb.jpg",
-      categories: ["News"]
-    },
-    {
-      id: 1002,
-      title: "Science Vs",
-      description: "Science Vs takes on fads, trends, and the opinionated mob to find out what's fact, what's not.",
-      url: "https://gimletmedia.com/science-vs",
-      audio: "https://traffic.omny.fm/d/clips/e73c998e-6e60-432f-8610-ae210140c5b1/7d01a137-bb0d-430e-aa67-ae3f00fc0187/2bd98d44-95a5-4a7e-9e9c-ae4300d59d50/audio.mp3",
-      datePublished: new Date().toLocaleDateString(),
-      duration: "31:00",
-      image: "https://is5-ssl.mzstatic.com/image/thumb/Podcasts125/v4/58/a5/2c/58a52c5d-91dc-a59f-9206-b1919fcc8c55/mza_17589569769640067902.jpg/600x600bb.jpg",
-      feedTitle: "Gimlet",
-      feedUrl: "https://feeds.megaphone.fm/sciencevs",
-      feedImage: "https://is5-ssl.mzstatic.com/image/thumb/Podcasts125/v4/58/a5/2c/58a52c5d-91dc-a59f-9206-b1919fcc8c55/mza_17589569769640067902.jpg/600x600bb.jpg",
-      categories: ["Science"]
-    },
-    {
-      id: 1003,
-      title: "Radiolab",
-      description: "Investigating a strange world with curiosity and clarity to illuminate fundamental science concepts.",
-      url: "https://www.wnycstudios.org/podcasts/radiolab",
-      audio: "https://www.podtrac.com/pts/redirect.mp3/audio.wnyc.org/radiolab/radiolab090723_mixdown_2.mp3",
-      datePublished: new Date().toLocaleDateString(),
-      duration: "45:00",
-      image: "https://is4-ssl.mzstatic.com/image/thumb/Podcasts115/v4/6e/51/96/6e5196b7-ca97-01a1-efb5-d0a094159767/mza_16172304289559890899.jpg/600x600bb.jpg",
-      feedTitle: "WNYC Studios",
-      feedUrl: "https://feeds.wnyc.org/radiolab",
-      feedImage: "https://is4-ssl.mzstatic.com/image/thumb/Podcasts115/v4/6e/51/96/6e5196b7-ca97-01a1-efb5-d0a094159767/mza_16172304289559890899.jpg/600x600bb.jpg",
-      categories: ["Science", "Education"]
-    },
-    {
-      id: 1004,
-      title: "Planet Money",
-      description: "The economy explained. Imagine you could call up a friend and say, 'Meet me at the bar and tell me what's going on with the economy.'",
-      url: "https://www.npr.org/podcasts/510289/planet-money",
-      audio: "https://pdst.fm/e/nprss.npr.org/anon.npr-podcasts/podcast/npr/pmoney/2023/09/20230929_pmoney_pmpod_1516_-_is_college_still_worth_it_wide_mix-b704ea68-1b51-497d-8c50-097a06b0916b.mp3",
-      datePublished: new Date().toLocaleDateString(),
-      duration: "20:00",
-      image: "https://is3-ssl.mzstatic.com/image/thumb/Podcasts126/v4/98/d2/d5/98d2d599-1d21-e9d5-5cb7-749d9242e958/mza_11520507046916537252.jpg/600x600bb.jpg",
-      feedTitle: "NPR",
-      feedUrl: "https://feeds.npr.org/510289/podcast.xml",
-      feedImage: "https://is3-ssl.mzstatic.com/image/thumb/Podcasts126/v4/98/d2/d5/98d2d599-1d21-e9d5-5cb7-749d9242e958/mza_11520507046916537252.jpg/600x600bb.jpg",
-      categories: ["Business", "Economics"]
-    },
-    {
-      id: 1005,
-      title: "TED Talks Daily",
-      description: "Every weekday, TED Talks Daily brings you the latest talks in audio. Join host and journalist Elise Hu for thought-provoking ideas.",
-      url: "https://www.ted.com/talks",
-      audio: "https://dts.podtrac.com/redirect.mp3/download.ted.com/talks/KateDarling_2023S.mp3",
-      datePublished: new Date().toLocaleDateString(),
-      duration: "15:00",
-      image: "https://is1-ssl.mzstatic.com/image/thumb/Podcasts115/v4/d2/09/d5/d209d58f-8f9f-c2aa-3c59-0ffc4e5e35ec/mza_11998461439228757191.png/600x600bb.jpg",
-      feedTitle: "TED",
-      feedUrl: "https://feeds.feedburner.com/TEDTalks_audio",
-      feedImage: "https://is1-ssl.mzstatic.com/image/thumb/Podcasts115/v4/d2/09/d5/d209d58f-8f9f-c2aa-3c59-0ffc4e5e35ec/mza_11998461439228757191.png/600x600bb.jpg",
-      categories: ["Education", "Ideas"]
-    }
-  ];
-  
-  // Duplicate and modify samples if more than 5 are requested
-  let result = [...samplePodcasts];
-  while (result.length < count) {
-    const newBatch = samplePodcasts.map((podcast, index) => ({
-      ...podcast,
-      id: podcast.id + 1000 * result.length,
-      title: `${podcast.title} ${Math.floor(result.length / 5) + 1}`
-    }));
-    result = [...result, ...newBatch];
-  }
-  
-  return result.slice(0, count);
 };
 
 // Search for podcasts by category
 export const searchPodcastsByCategory = async (category: string, limit: number = 5): Promise<PodcastEpisode[]> => {
   try {
-    // Map common topics to podcast categories
-    const categoryMap: Record<string, string> = {
-      'science': 'Science',
-      'history': 'History',
-      'technology': 'Technology',
-      'news': 'News',
-      'politics': 'Politics',
-      'business': 'Business',
-      'education': 'Education',
-      'entertainment': 'Entertainment',
-      'health': 'Health & Fitness',
-      'sports': 'Sports',
-      'arts': 'Arts',
-      'music': 'Music',
-      'society': 'Society & Culture',
-      'philosophy': 'Philosophy'
-    };
-    
-    const mappedCategory = categoryMap[category.toLowerCase()] || category;
-    
-    // Use iTunes Search API to search by genre
-    const response = await axios.get(
-      'https://itunes.apple.com/search',
-      {
-        params: {
-          term: mappedCategory,
-          media: 'podcast',
-          entity: 'podcast',
-          attribute: 'genreIndex',
-          limit: limit,
-          country: 'US'
+    // Try to load from static data first
+    try {
+      console.log(`Using static podcast data for category: ${category}`);
+      
+      // Load the index
+      const indexResponse = await axios.get('/data/podcasts/index.json');
+      const indexData = indexResponse.data;
+      
+      if (!indexData || !indexData.podcasts || indexData.podcasts.length === 0) {
+        throw new Error('No podcasts in index');
+      }
+      
+      // Filter podcasts by category
+      const matchingPodcasts = indexData.podcasts.filter((podcast: any) => 
+        podcast.category === category || 
+        podcast.category === 'mixed'  // Always include mixed category
+      );
+      
+      if (matchingPodcasts.length === 0) {
+        // If no matches, use any podcasts
+        console.log('No matching podcasts for category, using random ones');
+        const randomPodcasts = [...indexData.podcasts]
+          .sort(() => 0.5 - Math.random())
+          .slice(0, Math.min(3, indexData.podcasts.length));
+          
+        const allEpisodes: PodcastEpisode[] = [];
+        
+        for (const podcast of randomPodcasts) {
+          try {
+            const podcastResponse = await axios.get(`/data/podcasts/${podcast.id}.json`);
+            const podcastData = podcastResponse.data;
+            
+            if (podcastData && podcastData.episodes) {
+              allEpisodes.push(...podcastData.episodes.slice(0, 3));  // Take a few episodes
+            }
+          } catch (podcastErr) {
+            console.warn(`Couldn't load podcast ${podcast.id}:`, podcastErr);
+          }
+        }
+        
+        return allEpisodes
+          .sort(() => 0.5 - Math.random())
+          .slice(0, limit);
+      }
+      
+      // Get episodes from matching podcasts
+      const allEpisodes: PodcastEpisode[] = [];
+      
+      for (const podcast of matchingPodcasts) {
+        try {
+          const podcastResponse = await axios.get(`/data/podcasts/${podcast.id}.json`);
+          const podcastData = podcastResponse.data;
+          
+          if (podcastData && podcastData.episodes) {
+            allEpisodes.push(...podcastData.episodes);
+          }
+        } catch (podcastErr) {
+          console.warn(`Couldn't load podcast ${podcast.id}:`, podcastErr);
         }
       }
-    );
-    
-    if (!response.data?.results?.length) {
-      // Try a regular search if genre search fails
-      return searchPodcastEpisodes(mappedCategory, limit);
+      
+      // Randomize and limit
+      return allEpisodes
+        .sort(() => 0.5 - Math.random())
+        .slice(0, limit);
+    } catch (staticError) {
+      console.warn(`Static podcast data not available for category ${category}, showing placeholder:`, staticError);
+      // Return empty results for production
+      return [];
     }
-    
-    // Process and format the response 
-    // (similar to searchPodcastEpisodes implementation)
-    const podcasts = response.data.results;
-    
-    // For each podcast, fetch the latest episodes
-    const podcastsWithEpisodes = await Promise.all(
-      podcasts.map(async (podcast: any) => {
-        try {
-          const episodesResponse = await axios.get(
-            'https://itunes.apple.com/lookup',
-            {
-              params: {
-                id: podcast.collectionId,
-                entity: 'podcastEpisode',
-                limit: 100
-              }
-            }
-          );
-          
-          if (episodesResponse.data?.results?.length > 1) {
-            // First result is the podcast itself, rest are episodes
-            const episodes = episodesResponse.data.results.slice(1);
-            return episodes.map((episode: any) => ({
-              id: episode.trackId,
-              title: episode.trackName || 'Untitled Episode',
-              description: episode.description || podcast.collectionName,
-              url: episode.previewUrl || episode.trackViewUrl,
-              audio: episode.episodeUrl || episode.previewUrl || episode.trackViewUrl,
-              datePublished: new Date(episode.releaseDate).toLocaleDateString(),
-              duration: formatMilliseconds(episode.trackTimeMillis),
-              image: getBestPodcastImage(episode.artworkUrl600, podcast.artworkUrl600, podcast.artworkUrl100),
-              feedTitle: podcast.collectionName,
-              feedUrl: podcast.feedUrl,
-              feedImage: getBestPodcastImage(podcast.artworkUrl600, podcast.artworkUrl100),
-              categories: [podcast.primaryGenreName]
-            }));
-          }
-          
-          // If no episodes found, return the podcast info as a placeholder
-          return [{
-            id: podcast.collectionId,
-            title: podcast.collectionName,
-            description: podcast.collectionName,
-            url: podcast.collectionViewUrl,
-            audio: '',
-            datePublished: new Date(podcast.releaseDate).toLocaleDateString(),
-            duration: '00:00',
-            image: getBestPodcastImage(podcast.artworkUrl600, podcast.artworkUrl100),
-            feedTitle: podcast.collectionName,
-            feedUrl: podcast.feedUrl,
-            feedImage: getBestPodcastImage(podcast.artworkUrl600, podcast.artworkUrl100),
-            categories: [podcast.primaryGenreName]
-          }];
-        } catch (error) {
-          console.error('Error fetching podcast episodes:', error);
-          return [];
-        }
-      })
-    );
-    
-    // Flatten the array of arrays
-    return podcastsWithEpisodes.flat();
   } catch (error) {
-    console.error('Error searching podcasts by category:', error);
-    return searchPodcastEpisodes(category, limit); // Fallback to regular search
+    console.error(`Error searching podcasts for category ${category}:`, error);
+    return [];
   }
 };
 

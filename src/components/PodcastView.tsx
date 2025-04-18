@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { PodcastEpisode } from '../types';
 import { XMarkIcon, MagnifyingGlassIcon, ArrowLeftIcon } from '@heroicons/react/24/outline';
 import { AboutModal, LikesModal } from './Modals';
+import axios from 'axios';
 
 interface PodcastViewProps {
   onRefresh: () => Promise<PodcastEpisode[]>;

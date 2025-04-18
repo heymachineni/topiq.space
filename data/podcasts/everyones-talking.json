@@ -1,0 +1,73 @@
+{
+  "id": "everyones-talking",
+  "name": "Everyone's Talking About",
+  "category": "popular",
+  "episodes": [
+    {
+      "id": "everyones-talking-0",
+      "podcastId": "everyones-talking",
+      "podcastName": "Everyone's Talking About",
+      "title": "The Trial Mark Zuckerberg Couldn’t Prevent",
+      "description": "Testimonies began this week in one of the most aggressive cases the government has ever brought against a big tech company. Over the next eight weeks, the Federal Trade Commission will argue that Meta, the company founded by Mark Zuckerberg, should be broken up.\n\nCecilia Kang, who covers technology and regulatory policy, discusses the strange and contentious relationship between Mr. Zuckerberg and President Trump that has led to this moment, and what the case means for them.",
+      "audioUrl": "https://dts.podtrac.com/redirect.mp3/pdst.fm/e/pfx.vpixl.com/6qj4J/nyt.simplecastaudio.com/03d8b493-87fc-4bd1-931f-8a8e9b945d8a/episodes/968bef57-26f0-4ac6-a396-c162dc1a39a9/audio/128/default.mp3?aid=rss_feed&awCollectionId=03d8b493-87fc-4bd1-931f-8a8e9b945d8a&awEpisodeId=968bef57-26f0-4ac6-a396-c162dc1a39a9&feed=Sl5CSM3S",
+      "duration": "00:23:40",
+      "fileSize": 1420000,
+      "mimeType": "audio/mpeg",
+      "link": "https://podcasts.apple.com/us/podcast/the-trial-mark-zuckerberg-couldnt-prevent/id1200361736?i=1000703856015&uo=4",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Podcasts221/v4/5a/ca/5f/5aca5fc2-f43d-a64d-e007-1c1d80eb10b1/mza_15667804036814564449.jpg/600x600bb.jpg",
+      "publishDate": "2025-04-17T09:45:00.000Z",
+      "category": "popular",
+      "dateAdded": "2025-04-18T07:15:23.260Z"
+    },
+    {
+      "id": "everyones-talking-1",
+      "podcastId": "everyones-talking",
+      "podcastName": "Everyone's Talking About",
+      "title": "Trump Trashed the Iran Nuclear Deal. Will His Be Any Better?",
+      "description": "For years, President Trump has mocked the Obama administration for the nuclear agreement that it reached with Iran — a plan he disliked so much that he revoked it. \n\nNow, as he embarks on talks with Iran to reach a nuclear agreement of his own, the question is whether his administration can achieve a better deal.\n\nDavid E. Sanger, who covers the White House and national security, takes us inside the negotiations.",
+      "audioUrl": "https://dts.podtrac.com/redirect.mp3/pdst.fm/e/pfx.vpixl.com/6qj4J/nyt.simplecastaudio.com/03d8b493-87fc-4bd1-931f-8a8e9b945d8a/episodes/46710ff6-c1b7-447d-bca1-f8fd74fd965b/audio/128/default.mp3?aid=rss_feed&awCollectionId=03d8b493-87fc-4bd1-931f-8a8e9b945d8a&awEpisodeId=46710ff6-c1b7-447d-bca1-f8fd74fd965b&feed=Sl5CSM3S",
+      "duration": "00:28:32",
+      "fileSize": 1712000,
+      "mimeType": "audio/mpeg",
+      "link": "https://podcasts.apple.com/us/podcast/trump-trashed-the-iran-nuclear-deal-will-his-be-any-better/id1200361736?i=1000703720781&uo=4",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Podcasts211/v4/07/a1/c1/07a1c11a-d941-5b2c-b556-b421c799ad59/mza_14273297710757048598.jpg/600x600bb.jpg",
+      "publishDate": "2025-04-16T09:45:00.000Z",
+      "category": "popular",
+      "dateAdded": "2025-04-18T07:15:23.260Z"
+    },
+    {
+      "id": "everyones-talking-2",
+      "podcastId": "everyones-talking",
+      "podcastName": "Everyone's Talking About",
+      "title": "The Sunday Read: ‘Unburying the Remains of the Third Reich’",
+      "description": "When Daniel and Victoria Van Beuningen first toured their future home, a quiet villa in the Polish city of Wroclaw, it had been abandoned for years, its windows sealed up with bricks. But something about its overgrown garden spoke to them. They could imagine raising chickens there, planting tomatoes and cucumbers. They could make something beautiful out of it, they thought — a place where their children could run and play.\n\nThey moved in knowing very little about what happened at the villa before World War II, when Wroclaw, formerly Breslau, was still part of Germany.\n\nThe couple wanted to know more, and their inquiries eventually led to the Meinecke family in Heidelberg, Germany, elderly siblings who said they were born in the home. Over a long afternoon, they showed the couple pictures of the place from happier times before the war, but they also offered the Van Beuningens a surprising warning: The couple might find the remains of some German soldiers buried in the garden.",
+      "audioUrl": "https://dts.podtrac.com/redirect.mp3/pdst.fm/e/pfx.vpixl.com/6qj4J/nyt.simplecastaudio.com/03d8b493-87fc-4bd1-931f-8a8e9b945d8a/episodes/e3ab35a1-cef9-4596-943e-cf657e0a16e9/audio/128/default.mp3?aid=rss_feed&awCollectionId=03d8b493-87fc-4bd1-931f-8a8e9b945d8a&awEpisodeId=e3ab35a1-cef9-4596-943e-cf657e0a16e9&feed=Sl5CSM3S",
+      "duration": "00:50:19",
+      "fileSize": 3019000,
+      "mimeType": "audio/mpeg",
+      "link": "https://podcasts.apple.com/us/podcast/the-sunday-read-unburying-the-remains-of-the-third-reich/id1200361736?i=1000703337830&uo=4",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Podcasts211/v4/c8/1a/71/c81a716b-b5d1-61b7-7d3e-0253a56e63d5/mza_15186388159121451528.jpg/600x600bb.jpg",
+      "publishDate": "2025-04-13T10:00:00.000Z",
+      "category": "popular",
+      "dateAdded": "2025-04-18T07:15:23.260Z"
+    },
+    {
+      "id": "everyones-talking-3",
+      "podcastId": "everyones-talking",
+      "podcastName": "Everyone's Talking About",
+      "title": "'The Interview': Ramy Youssef Is Just Trying to Be ‘Emotionally Correct’",
+      "description": "The creator and comedian discusses his penchant for self-reflection, how politics fits into his work and why he’s not interested in representing anyone but himself.",
+      "audioUrl": "https://dts.podtrac.com/redirect.mp3/pdst.fm/e/pfx.vpixl.com/6qj4J/nyt.simplecastaudio.com/03d8b493-87fc-4bd1-931f-8a8e9b945d8a/episodes/02f60c5c-7d4e-47e2-aa88-ae09d5731132/audio/128/default.mp3?aid=rss_feed&awCollectionId=03d8b493-87fc-4bd1-931f-8a8e9b945d8a&awEpisodeId=02f60c5c-7d4e-47e2-aa88-ae09d5731132&feed=Sl5CSM3S",
+      "duration": "00:45:40",
+      "fileSize": 2740000,
+      "mimeType": "audio/mpeg",
+      "link": "https://podcasts.apple.com/us/podcast/the-interview-ramy-youssef-is-just-trying-to-be/id1200361736?i=1000703257058&uo=4",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Podcasts221/v4/3b/cd/63/3bcd63b7-71bf-9ec8-1508-c71e186fd410/mza_11399453052585303655.jpg/600x600bb.jpg",
+      "publishDate": "2025-04-12T10:00:00.000Z",
+      "category": "popular",
+      "dateAdded": "2025-04-18T07:15:23.260Z"
+    }
+  ],
+  "count": 4,
+  "fetchedAt": "2025-04-18T07:15:23.260Z"
+}

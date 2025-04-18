@@ -14,6 +14,7 @@ import {
   getViewedArticles, 
   markArticleAsViewed 
 } from '../utils/storage';
+import axios from 'axios';
 
 // Batching configuration
 const REFRESH_INTERVAL = 2 * 60 * 60 * 1000; // Refresh every 2 hours
@@ -176,7 +177,39 @@ export const useWikipediaArticles = (initialCount: number = 10) => {
       setLoading(true);
       
       try {
-        // Try to load cached articles first
+        let initialArticles: WikipediaArticle[] = [];
+        
+        // Try to load from static data first
+        try {
+          const staticResponse = await axios.get('/data/wiki.json');
+          const staticData = staticResponse.data;
+          if (staticData && staticData.articles && staticData.articles.length > 0) {
+            console.log(`Loaded ${staticData.articles.length} articles from static data`);
+            initialArticles = staticData.articles;
+            
+            // Set articles immediately from static data
+            setArticles(initialArticles.slice(0, initialCount));
+            setLoading(false);
+            setInitialLoadComplete(true);
+            
+            // Save to cache
+            saveArticlesToCache(initialArticles);
+            
+            // Update source counts
+            updateSourceCounts(initialArticles);
+            
+            // In the background, start fetching more articles
+            setTimeout(() => {
+              loadMoreArticlesInBackground(BATCH_SIZE);
+            }, 5000); // Wait 5 seconds before starting background fetch
+            
+            return; // Exit early since we have static data
+          }
+        } catch (staticError) {
+          console.log('Static data not available, falling back to cache and API');
+        }
+        
+        // Try to load cached articles
         let cachedArticles = loadArticlesFromCache();
         
         // Check if we need to refresh the cache
@@ -206,10 +239,12 @@ export const useWikipediaArticles = (initialCount: number = 10) => {
         // Use cached articles for initial display
         if (cachedArticles.length > 0) {
           setArticles(cachedArticles.slice(0, initialCount));
+          updateSourceCounts(cachedArticles);
         } else {
           // Fallback to direct fetch if cache is empty
           const directArticles = await fetchFreshArticles(initialCount);
           setArticles(directArticles);
+          updateSourceCounts(directArticles);
         }
       } catch (err) {
         console.error('Error initializing articles:', err);
@@ -221,7 +256,7 @@ export const useWikipediaArticles = (initialCount: number = 10) => {
     };
     
     initializeArticles();
-  }, [initialCount, fetchFreshArticles, loadArticlesFromCache, saveArticlesToCache]);
+  }, [initialCount, fetchFreshArticles, loadArticlesFromCache, saveArticlesToCache, updateSourceCounts]);
 
   // Refresh articles with new content
   const refreshArticles = useCallback(async () => {
