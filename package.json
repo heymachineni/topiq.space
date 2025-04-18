@@ -13,6 +13,7 @@
     "framer-motion": "^6.5.1",
     "html-react-parser": "^5.2.3",
     "mathjax-react": "^2.0.1",
+    "next": "^13.4.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-scripts": "5.0.1",
@@ -21,8 +22,8 @@
   },
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
-    "build:production": "NODE_ENV=production next build",
+    "build": "next build && next export",
+    "build:production": "NODE_ENV=production next build && next export",
     "fetch-podcasts": "node scripts/fetch-podcasts.js",
     "fetch-wiki": "node scripts/fetch-wikipedia.js",
     "start": "next start",

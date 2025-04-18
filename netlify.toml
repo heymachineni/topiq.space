@@ -1,6 +1,7 @@
 [build]
   command = "CI=false npm run build"
-  publish = "build"
+  publish = "out"
 
 [build.environment]
-  CI = "false" 
+  CI = "false"
+  NODE_VERSION = "18" 
