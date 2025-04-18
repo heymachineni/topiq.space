@@ -73,7 +73,7 @@ export const useWikipediaArticles = (initialCount: number = 10) => {
     setSourceDistribution(counts);
   }, []);
 
-  // Fetch fresh articles from all sources with improved parallelization
+  // Fetch fresh articles from all sources
   const fetchFreshArticles = useCallback(async (count: number) => {
     try {
       setError(null);
@@ -105,25 +105,12 @@ export const useWikipediaArticles = (initialCount: number = 10) => {
         sourceRequests.wikipedia = Math.max(1, (sourceRequests.wikipedia || 0) + remainingCount);
       }
       
-      // Start fetching immediately - don't wait for completion
-      const fetchPromise = fetchMultiSourceArticles(sourceRequests);
-      
-      // Set a timeout to ensure we don't wait forever
-      const timeoutPromise = new Promise<WikipediaArticle[]>((resolve) => {
-        setTimeout(() => {
-          console.log('Article fetch timed out, returning partial results');
-          resolve([]); // Resolve with empty array after timeout
-        }, 15000); // 15 second timeout for initial load
-      });
-      
-      // Use Promise.race to handle whichever completes first
-      const freshArticles = await Promise.race([fetchPromise, timeoutPromise]);
+      // Fetch articles from multiple sources - pass the viewed IDs but don't filter
+      const freshArticles = await fetchMultiSourceArticles(sourceRequests);
       
       // Filter out articles without titles
       const validArticles = freshArticles.filter(article => 
-        article.title && article.title.trim() !== '' &&
-        // Keep articles with thumbnails or onthisday source
-        (article.thumbnail?.source || article.source === 'onthisday')
+        article.title && article.title.trim() !== ''
       );
       
       // Sort articles - new ones first, then already viewed ones
@@ -168,20 +155,14 @@ export const useWikipediaArticles = (initialCount: number = 10) => {
     return getSavedArticles();
   }, []);
 
-  // Initialize articles on mount with faster loading
+  // Initialize articles on mount
   useEffect(() => {
     const initializeArticles = async () => {
       setLoading(true);
       
       try {
-        // Try to load cached articles first for fast initial render
+        // Try to load cached articles first
         let cachedArticles = loadArticlesFromCache();
-        
-        // Immediately display cached articles if available
-        if (cachedArticles.length > 0) {
-          setArticles(cachedArticles.slice(0, initialCount));
-          setLoading(false); // Stop loading state early
-        }
         
         // Check if we need to refresh the cache
         const needsRefresh = 
@@ -190,28 +171,8 @@ export const useWikipediaArticles = (initialCount: number = 10) => {
           (Date.now() - lastRefreshTime.current > REFRESH_INTERVAL);
         
         if (needsRefresh) {
-          // Fetch fresh articles in the background
-          const freshArticlesFetch = fetchFreshArticles(BATCH_SIZE);
-          
-          // If we didn't have cached articles earlier, set loading state
-          if (cachedArticles.length === 0) {
-            // Use a timeout to ensure loading state isn't shown for too long
-            const timeoutPromise = new Promise<void>((resolve) => {
-              setTimeout(() => {
-                setLoading(false);
-                resolve();
-              }, 10000); // Max 10 seconds loading time
-            });
-            
-            // Race between article fetch and timeout
-            await Promise.race([
-              freshArticlesFetch.then(() => {}),
-              timeoutPromise
-            ]);
-          }
-          
-          // Wait for fresh articles to complete (in background if cached articles displayed)
-          const freshArticles = await freshArticlesFetch;
+          // Fetch fresh articles if needed
+          const freshArticles = await fetchFreshArticles(BATCH_SIZE);
           
           if (freshArticles.length > 0) {
             // Combine fresh articles with existing cache
@@ -222,10 +183,18 @@ export const useWikipediaArticles = (initialCount: number = 10) => {
               cachedArticles = cachedArticles.slice(0, MAX_CACHED_ARTICLES);
             }
             
-            // Update displayed articles and save updated cache
-            setArticles(cachedArticles.slice(0, Math.max(initialCount, freshArticles.length)));
+            // Save updated cache
             saveArticlesToCache(cachedArticles);
           }
+        }
+        
+        // Use cached articles for initial display
+        if (cachedArticles.length > 0) {
+          setArticles(cachedArticles.slice(0, initialCount));
+        } else {
+          // Fallback to direct fetch if cache is empty
+          const directArticles = await fetchFreshArticles(initialCount);
+          setArticles(directArticles);
         }
       } catch (err) {
         console.error('Error initializing articles:', err);
@@ -239,7 +208,7 @@ export const useWikipediaArticles = (initialCount: number = 10) => {
     initializeArticles();
   }, [initialCount, fetchFreshArticles, loadArticlesFromCache, saveArticlesToCache]);
 
-  // Refresh articles with new content - optimized version
+  // Refresh articles with new content
   const refreshArticles = useCallback(async () => {
     setLoading(true);
     
@@ -247,19 +216,8 @@ export const useWikipediaArticles = (initialCount: number = 10) => {
       // Clear existing caches to start fresh
       clearArticleCaches();
       
-      // Fetch fresh articles with timeout handling
-      const fetchPromise = fetchFreshArticles(BATCH_SIZE);
-      
-      // Set a timeout to prevent too long loading
-      const timeoutPromise = new Promise<WikipediaArticle[]>((resolve) => {
-        setTimeout(() => {
-          console.log('Refresh timed out, returning partial results');
-          resolve([]); // Resolve with empty array after timeout
-        }, 10000); // 10 second timeout for refresh
-      });
-      
-      // Use Promise.race to handle whichever completes first
-      const freshArticles = await Promise.race([fetchPromise, timeoutPromise]);
+      // Fetch fresh articles
+      const freshArticles = await fetchFreshArticles(BATCH_SIZE);
       
       if (freshArticles.length > 0) {
         // Log the source distribution of fetched articles
@@ -270,10 +228,6 @@ export const useWikipediaArticles = (initialCount: number = 10) => {
         }, {} as Record<ContentSource, number>);
         console.log('Source distribution of refreshed articles:', sourceCounts);
         
-        // Update the source distribution state
-        updateSourceCounts(freshArticles);
-        
-        // Update the article list and save to cache
         setArticles(freshArticles);
         saveArticlesToCache(freshArticles);
       } else {
@@ -285,72 +239,126 @@ export const useWikipediaArticles = (initialCount: number = 10) => {
     } finally {
       setLoading(false);
     }
-  }, [fetchFreshArticles, saveArticlesToCache, updateSourceCounts]);
+  }, [fetchFreshArticles, saveArticlesToCache]);
 
-  // Load more articles in the background - improved for infinite scroll
+  // Load more articles in the background
   const loadMoreArticlesInBackground = useCallback(async (count: number = BATCH_SIZE) => {
     // Don't fetch more while already loading
     if (isLoadingBackground) return;
     
     setIsLoadingBackground(true);
-    console.log('Loading more articles in background...');
+    console.log(`Loading ${count} more articles in background...`);
     
     try {
+      // Increase the request count to ensure we get enough valid articles after filtering
+      const requestCount = count * 2;
+      
       // Fetch more articles directly
-      const freshArticles = await fetchFreshArticles(count);
+      const freshArticles = await fetchFreshArticles(requestCount);
       
       // Get cached articles to avoid exact duplicates
       const cachedArticles = loadArticlesFromCache();
       const cachedIds = new Set(cachedArticles.map(a => a.pageid));
+      const currentIds = new Set(articles.map(a => a.pageid));
       
-      // Filter out exact duplicates, articles without titles, and articles without images (except onthisday)
+      // More aggressive filtering:
+      // 1. No duplicates
+      // 2. Must have a valid title
+      // 3. Must have a thumbnail/image (except 'onthisday' which may not have images)
+      // 4. Prioritize unviewed articles
       const uniqueNewArticles = freshArticles.filter(article => 
         !cachedIds.has(article.pageid) && 
+        !currentIds.has(article.pageid) &&
         article.title && 
         article.title.trim() !== '' &&
         (article.thumbnail?.source || article.source === 'onthisday')
       );
       
-      console.log(`Loaded ${uniqueNewArticles.length} new unique articles for infinite scroll`);
+      console.log(`Filtered ${freshArticles.length} articles down to ${uniqueNewArticles.length} unique ones with images`);
       
-      // Sort so unviewed articles come first
-      const sortedNewArticles = uniqueNewArticles.sort((a, b) => {
-        const aViewed = a.pageid ? viewedArticleIds.current.has(a.pageid) : false;
-        const bViewed = b.pageid ? viewedArticleIds.current.has(b.pageid) : false;
+      if (uniqueNewArticles.length === 0) {
+        console.log("No new unique articles with images found, trying again with different sources");
+        // If we didn't get any valid articles, try with a different source distribution
+        const alternateSourceRequest: Partial<Record<ContentSource, number>> = {
+          wikipedia: Math.floor(requestCount * 0.4),
+          reddit: Math.floor(requestCount * 0.3),
+          hackernews: Math.floor(requestCount * 0.2),
+          onthisday: Math.floor(requestCount * 0.1)
+        };
         
-        if (aViewed && !bViewed) return 1; 
-        if (!aViewed && bViewed) return -1;
-        return 0;
-      });
-      
-      // Mark new articles as viewed
-      sortedNewArticles.forEach(article => {
-        if (article.pageid) {
-          viewedArticleIds.current.add(article.pageid);
-          markArticleAsViewed(article);
+        const alternateArticles = await fetchMultiSourceArticles(alternateSourceRequest);
+        // Apply the same filtering
+        const uniqueAlternateArticles = alternateArticles.filter(article => 
+          !cachedIds.has(article.pageid) && 
+          !currentIds.has(article.pageid) &&
+          article.title && 
+          article.title.trim() !== '' &&
+          (article.thumbnail?.source || article.source === 'onthisday')
+        );
+        
+        if (uniqueAlternateArticles.length > 0) {
+          // Sort so unviewed articles come first
+          const sortedNewArticles = uniqueAlternateArticles.sort((a, b) => {
+            const aViewed = a.pageid ? viewedArticleIds.current.has(a.pageid) : false;
+            const bViewed = b.pageid ? viewedArticleIds.current.has(b.pageid) : false;
+            
+            if (aViewed && !bViewed) return 1; 
+            if (!aViewed && bViewed) return -1;
+            return 0;
+          });
+          
+          // Mark new articles as viewed
+          sortedNewArticles.forEach(article => {
+            if (article.pageid) {
+              viewedArticleIds.current.add(article.pageid);
+              markArticleAsViewed(article);
+            }
+          });
+          
+          console.log(`Adding ${sortedNewArticles.length} alternate articles to feed`);
+          
+          // Update state and cache
+          setArticles(prev => [...prev, ...sortedNewArticles]);
+          const allArticles = [...cachedArticles, ...sortedNewArticles];
+          saveArticlesToCache(allArticles.slice(0, MAX_CACHED_ARTICLES));
+        } else {
+          console.log("Still couldn't find any valid articles, will try again later");
         }
-      });
-      
-      // Update state and cache
-      setArticles(prev => [...prev, ...sortedNewArticles]);
-      saveArticlesToCache([...cachedArticles, ...sortedNewArticles].slice(0, MAX_CACHED_ARTICLES));
-      
-      // Update source distribution for stats
-      updateSourceCounts([...articles, ...sortedNewArticles]);
+      } else {
+        // Sort so unviewed articles come first
+        const sortedNewArticles = uniqueNewArticles.sort((a, b) => {
+          const aViewed = a.pageid ? viewedArticleIds.current.has(a.pageid) : false;
+          const bViewed = b.pageid ? viewedArticleIds.current.has(b.pageid) : false;
+          
+          if (aViewed && !bViewed) return 1; 
+          if (!aViewed && bViewed) return -1;
+          return 0;
+        });
+        
+        // Mark new articles as viewed
+        sortedNewArticles.forEach(article => {
+          if (article.pageid) {
+            viewedArticleIds.current.add(article.pageid);
+            markArticleAsViewed(article);
+          }
+        });
+        
+        console.log(`Adding ${sortedNewArticles.length} new articles to feed`);
+        
+        // Update state and cache
+        setArticles(prev => [...prev, ...sortedNewArticles]);
+        
+        // Only save to cache with a limit to prevent excessive storage
+        const allArticles = [...cachedArticles, ...sortedNewArticles];
+        saveArticlesToCache(allArticles.slice(0, MAX_CACHED_ARTICLES));
+      }
     } catch (err) {
       console.error('Error loading more articles:', err);
       // Don't show error to user for background loading
     } finally {
       setIsLoadingBackground(false);
     }
-  }, [
-    isLoadingBackground, 
-    fetchFreshArticles, 
-    loadArticlesFromCache, 
-    saveArticlesToCache, 
-    articles, 
-    updateSourceCounts
-  ]);
+  }, [isLoadingBackground, fetchFreshArticles, loadArticlesFromCache, saveArticlesToCache, articles, fetchMultiSourceArticles]);
 
   return {
     articles,

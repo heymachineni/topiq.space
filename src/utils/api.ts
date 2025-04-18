@@ -163,13 +163,11 @@ export async function fetchRandomWikipediaArticle(): Promise<WikipediaArticle> {
   
   const fetchFn = async () => {
     try {
-      // Use parallel fetching to improve performance - increased for better results
+      // Increase parallel fetching to improve performance - from 5 to a larger number
       // Fetch more random articles in parallel to increase chances of finding good ones
-      const fetchPromises = Array(8).fill(null).map(async () => {
+      const fetchPromises = Array(10).fill(null).map(async () => {
         try {
-          const response = await axios.get('https://en.wikipedia.org/api/rest_v1/page/random/summary', {
-            timeout: 5000 // Add timeout to prevent hanging requests
-          });
+          const response = await axios.get('https://en.wikipedia.org/api/rest_v1/page/random/summary', { timeout: 4000 });
           return response.data;
         } catch (error) {
           console.error('Error in parallel fetch of random article:', error);
@@ -184,7 +182,7 @@ export async function fetchRandomWikipediaArticle(): Promise<WikipediaArticle> {
         result.title && 
         result.extract && 
         result.extract.length >= 100 &&
-        result.thumbnail  // Only require that it has a thumbnail, accept any image
+        result.thumbnail // Only check if thumbnail exists, without width filtering
       );
       
       if (validResults.length > 0) {
@@ -208,9 +206,7 @@ export async function fetchRandomWikipediaArticle(): Promise<WikipediaArticle> {
       
       // If no valid result with image was found from the parallel attempts,
       // make one more direct fetch with more relaxed criteria
-      const fallbackResponse = await axios.get('https://en.wikipedia.org/api/rest_v1/page/random/summary', {
-        timeout: 5000
-      });
+      const fallbackResponse = await axios.get('https://en.wikipedia.org/api/rest_v1/page/random/summary', { timeout: 3000 });
       const fallbackData = fallbackResponse.data;
       
       // Accept even without thumbnail as last resort
@@ -411,101 +407,130 @@ export async function fetchHackerNewsStories(count: number = 5): Promise<Wikiped
       // and then filter for those with images from the article content
       const topStoriesEndpoints = [
         'https://hacker-news.firebaseio.com/v0/topstories.json',
-        'https://hacker-news.firebaseio.com/v0/beststories.json'
+        'https://hacker-news.firebaseio.com/v0/beststories.json',
+        'https://hacker-news.firebaseio.com/v0/newstories.json'
       ];
       
       // Try multiple endpoints in order until one succeeds
       let storyIds: number[] = [];
       let storiesResponse = null;
       
-      for (const endpoint of topStoriesEndpoints) {
-        try {
-          storiesResponse = await axios.get(endpoint, { timeout: 5000 });
-          if (storiesResponse.data && Array.isArray(storiesResponse.data) && storiesResponse.data.length > 0) {
-            storyIds = storiesResponse.data.slice(0, count * 4); // Fetch more than needed, but not excessive
-            console.log(`Successfully fetched ${storyIds.length} HackerNews story IDs from ${endpoint}`);
-            break;
-          }
-        } catch (err) {
-          console.error(`Failed to fetch story IDs from ${endpoint}:`, err);
-          // Continue to next endpoint
-        }
-      }
+      // Try to fetch from all endpoints concurrently
+      const endpointPromises = topStoriesEndpoints.map(endpoint => 
+        axios.get(endpoint, { timeout: 4000 })
+          .then(response => ({ 
+            success: true, 
+            data: response.data, 
+            endpoint 
+          }))
+          .catch(err => ({ 
+            success: false, 
+            endpoint 
+          }))
+      );
       
-      if (storyIds.length === 0) {
+      const endpointResults = await Promise.all(endpointPromises);
+      const successfulFetch = endpointResults.find(result => 
+        result.success && 
+        result.hasOwnProperty('data') && 
+        Array.isArray((result as any).data) && 
+        (result as any).data.length > 0
+      );
+      
+      if (successfulFetch) {
+        storyIds = (successfulFetch as any).data.slice(0, count * 10); // Fetch more to ensure we get enough with images
+        console.log(`Successfully fetched ${storyIds.length} HackerNews story IDs from ${successfulFetch.endpoint}`);
+      } else {
         console.error("Failed to fetch any HackerNews story IDs from all endpoints");
         // Return mock data with images as fallback
         return createMockHackerNewsStories(count);
       }
       
-      // Fetch details for stories in parallel - improved parallelization
-      const storiesPromises = storyIds.map(async (id: number) => {
-        try {
-          const storyPromise = axios.get(`https://hacker-news.firebaseio.com/v0/item/${id}.json`, { timeout: 3000 });
-          
-          // Wait for story data
-          const response = await storyPromise;
-          const story = response.data;
-          
-          // Skip jobs, polls, etc. or any story without needed data
-          if (!story || !story.title || !story.url) {
-            return null;
-          }
-          
-          // Try to fetch the article page to extract metadata including images
+      // Batch the story IDs to avoid overwhelming the API
+      const batchSize = 20;
+      const batches = [];
+      for (let i = 0; i < storyIds.length; i += batchSize) {
+        batches.push(storyIds.slice(i, i + batchSize));
+      }
+      
+      let validStories: WikipediaArticle[] = [];
+      
+      // Process each batch in sequence
+      for (const batch of batches) {
+        // Fetch details for each story in parallel with timeouts
+        const batchPromises = batch.map(async (id: number) => {
           try {
-            const pageResponse = await axios.get(`https://api.microlink.io?url=${encodeURIComponent(story.url)}&screenshot=true`, { 
-              timeout: 5000 
-            });
+            const response = await axios.get(`https://hacker-news.firebaseio.com/v0/item/${id}.json`, 
+                                        { timeout: 3000 });
+            const story = response.data;
             
-            const metadata = pageResponse.data.data;
-            
-            // Only require that it has an image - don't filter by width/quality
-            if (!metadata.image || !metadata.image.url) {
+            // Skip jobs, polls, etc. or any story without needed data
+            if (!story || !story.title || !story.url) {
               return null;
             }
             
-            return {
-              pageid: story.id,
-              title: story.title,
-              extract: story.text || metadata.description || `${story.score} points | ${story.descendants || 0} comments`,
-              thumbnail: {
-                source: metadata.image.url,
-                width: metadata.image.width || 800,
-                height: metadata.image.height || 600
-              },
-              description: `Posted by ${story.by}`,
-              source: 'hackernews' as ContentSource,
-              url: story.url
-            };
-          } catch (metaError) {
-            // If we can't fetch metadata, skip this story
-            console.error(`Error fetching metadata for HN story ${id}:`, metaError);
+            // Try to fetch the article page to extract metadata including images
+            try {
+              const pageResponse = await axios.get(`https://api.microlink.io?url=${encodeURIComponent(story.url)}&screenshot=true`, { 
+                timeout: 4000 
+              });
+              
+              const metadata = pageResponse.data.data;
+              
+              // Strict image filtering - only use stories where we can extract an image
+              if (!metadata.image || !metadata.image.url) {
+                return null;
+              }
+              
+              return {
+                pageid: story.id,
+                title: story.title,
+                extract: story.text || metadata.description || `${story.score} points | ${story.descendants || 0} comments`,
+                thumbnail: {
+                  source: metadata.image.url,
+                  width: metadata.image.width || 800,
+                  height: metadata.image.height || 600
+                },
+                description: `Posted by ${story.by}`,
+                source: 'hackernews' as ContentSource,
+                url: story.url
+              };
+            } catch (metaError) {
+              // If we can't fetch metadata, skip this story
+              console.error(`Error fetching metadata for HN story ${id}:`, metaError);
+              return null;
+            }
+          } catch (error) {
+            console.error(`Error fetching HN story ${id}:`, error);
             return null;
           }
-        } catch (error) {
-          console.error(`Error fetching HN story ${id}:`, error);
-          return null;
+        });
+        
+        const batchResults = await Promise.all(batchPromises);
+        const validBatchStories = batchResults.filter(story => story !== null) as WikipediaArticle[];
+        validStories = [...validStories, ...validBatchStories];
+        
+        // If we have enough valid stories with images, stop processing
+        if (validStories.length >= count) {
+          break;
         }
-      });
+      }
       
-      // Improved handling - wait for all promises with shorter timeout
-      const results = await Promise.allSettled(storiesPromises);
+      console.log(`Successfully fetched ${validStories.length} valid HackerNews stories with images`);
       
-      // Process successful results
-      const validStories = results
-        .filter(result => result.status === 'fulfilled' && result.value !== null)
-        .map(result => (result as PromiseFulfilledResult<WikipediaArticle | null>).value)
-        .filter((story): story is WikipediaArticle => 
-          story !== null && story.thumbnail !== undefined && story.thumbnail.source !== undefined
-        );
+      if (validStories.length === 0) {
+        return createMockHackerNewsStories(count);
+      }
       
-      console.log(`Found ${validStories.length} HackerNews stories with images`);
+      // Apply high-res image optimizations
+      validStories = validStories.map(story => ({
+        ...story,
+        thumbnail: story.thumbnail ? getHighResImage(story.thumbnail) : story.thumbnail
+      }));
       
-      // Return the stories - limited to requested count
       return validStories.slice(0, count);
     } catch (error) {
-      console.error('Error fetching HackerNews stories:', error);
+      console.error('Error in fetchHackerNewsStories:', error);
       return createMockHackerNewsStories(count);
     }
   };
@@ -682,10 +707,10 @@ export async function fetchRedditPosts(count: number = 5): Promise<WikipediaArti
       console.log(`Fetching Reddit posts, requested count: ${count}`);
       
       // Fetch from multiple subreddits to increase chances of finding posts with images
-      // Request more posts than needed to ensure we can filter for ones with images
+      // Request more posts than needed to ensure we can filter for ones with good images
       const response = await axios.get(
-        `https://www.reddit.com/r/todayilearned+science+worldnews+technology+history+pics+EarthPorn+space.json?limit=${count * 3}`,
-        { timeout: 5000 }
+        `https://www.reddit.com/r/todayilearned+science+worldnews+technology+history+pics+EarthPorn+space.json?limit=${count * 10}`,
+        { timeout: 4000 }
       );
       
       if (!response.data?.data?.children) {
@@ -693,14 +718,14 @@ export async function fetchRedditPosts(count: number = 5): Promise<WikipediaArti
         return [];
       }
       
-      // Filter posts to only include those with proper images
+      // Filter posts to only include those with proper images - strict filtering
       const posts = response.data.data.children
         .filter((post: any) => 
           // Ensure post has title and isn't NSFW
           post.data && 
           post.data.title && 
           !post.data.over_18 &&
-          // Only require valid preview images - no width filtering
+          // Strict image requirement - must have preview images with source
           post.data.preview && 
           post.data.preview.images && 
           post.data.preview.images[0] &&
@@ -985,8 +1010,13 @@ export const fetchMultiSourceArticles = async (
   // Wait for all fetches to complete
   await Promise.all(promises);
   
+  // Filter out articles without images (except onthisday which naturally doesn't have images)
+  const filteredArticles = allArticles.filter(article => 
+    article.thumbnail?.source || article.source === 'onthisday'
+  );
+  
   // Apply high resolution image optimization to all articles
-  const optimizedArticles = optimizeArticleImagesArray(allArticles);
+  const optimizedArticles = optimizeArticleImagesArray(filteredArticles);
   
   // Shuffle the articles to mix sources
   return shuffleArray(optimizedArticles);
@@ -1511,11 +1541,5 @@ export const optimizeArticleImages = (article: WikipediaArticle): WikipediaArtic
 // Optimize all images in an array of WikipediaArticles
 export const optimizeArticleImagesArray = (articles: WikipediaArticle[]): WikipediaArticle[] => {
   if (!articles || !Array.isArray(articles)) return articles;
-  
-  // Filter out articles without images (except onthisday source)
-  const filteredArticles = articles.filter(article => 
-    article.thumbnail?.source || article.source === 'onthisday'
-  );
-  
-  return filteredArticles.map(article => optimizeArticleImages(article));
+  return articles.map(article => optimizeArticleImages(article));
 }; 
