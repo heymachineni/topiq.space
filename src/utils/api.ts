@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { WikipediaArticle, ContentSource, ArticleSource } from '../types';
+import { CACHE_DURATIONS, API_CONFIG, FEATURES } from '../config';
 
 /**
  * Additional Free Wiki-like and Knowledge API Sources:
@@ -62,27 +63,40 @@ interface Cache {
   data: any;
 }
 
-const API_CACHE: Record<string, Cache> = {};
-const CACHE_DURATION = 15 * 60 * 1000; // 15 minutes
+const cache: Record<string, Cache> = {};
 
-// Cache timeout in ms (5 minutes)
-const CACHE_TIMEOUT = 5 * 60 * 1000;
-
-// Helper to check if cache is valid
+// Check if cache is valid (not expired)
 const isCacheValid = (cacheKey: string): boolean => {
-  if (!API_CACHE[cacheKey]) return false;
+  if (!FEATURES.USE_CACHE) return false;
+  
+  const cacheItem = cache[cacheKey];
+  if (!cacheItem) return false;
+  
   const now = Date.now();
-  return now - API_CACHE[cacheKey].timestamp < CACHE_DURATION;
-};
-
-// Get data from cache or fetch new
-const getFromCacheOrFetch = async (cacheKey: string, fetchFn: () => Promise<any>): Promise<any> => {
-  if (isCacheValid(cacheKey)) {
-    return API_CACHE[cacheKey].data;
+  // Use appropriate cache duration based on the type of content
+  let cacheDuration = CACHE_DURATIONS.ARTICLES;
+  
+  if (cacheKey.includes('podcast')) {
+    cacheDuration = CACHE_DURATIONS.PODCASTS;
+  } else if (cacheKey.includes('image') || cacheKey.includes('media')) {
+    cacheDuration = CACHE_DURATIONS.IMAGES;
   }
   
+  return now - cacheItem.timestamp < cacheDuration;
+};
+
+// Get data from cache if valid, or fetch from API
+const getFromCacheOrFetch = async (cacheKey: string, fetchFn: () => Promise<any>): Promise<any> => {
+  if (isCacheValid(cacheKey)) {
+    console.log(`Using cached data for ${cacheKey}`);
+    return cache[cacheKey].data;
+  }
+  
+  console.log(`Fetching fresh data for ${cacheKey}`);
   const data = await fetchFn();
-  API_CACHE[cacheKey] = {
+  
+  // Update cache
+  cache[cacheKey] = {
     timestamp: Date.now(),
     data
   };
@@ -1044,97 +1058,50 @@ export async function fetchWikipediaCurrentEvents(count: number = 5): Promise<Wi
 
 // Article quality scoring - gives a score based on content quality
 export const calculateArticleQualityScore = (article: WikipediaArticle): number => {
-  if (!article) return 0;
-  
   let score = 0;
   
-  // Score based on having a thumbnail image
+  // Base score from extract length (0-40 points)
+  const textLength = article.extract ? article.extract.length : 0;
+  score += Math.min(40, Math.floor(textLength / 100));
+  
+  // Has a decent title (0-10 points)
+  if (article.title && article.title.length > 3) {
+    score += Math.min(10, article.title.length / 3);
+  }
+  
+  // Has a thumbnail image (0-20 points)
   if (article.thumbnail && article.thumbnail.source) {
-    // Check for low-quality image patterns
-    const imgSrc = article.thumbnail.source;
-    const isLowQuality = 
-      imgSrc.includes('thumb/') || 
-      imgSrc.includes('thumbnail') || 
-      imgSrc.includes('_small.') ||
-      imgSrc.includes('-small.') ||
-      imgSrc.includes('_thumb.') ||
-      imgSrc.includes('w200') ||
-      imgSrc.includes('width=200') ||
-      imgSrc.includes('w100') ||
-      (article.thumbnail.width && article.thumbnail.width < 300);
-      
-    if (isLowQuality) {
-      score += 10; // Give only minimal points for low quality images
-    } else {
-      score += 35; // Give significant weight to having a good image
-      
-      // Higher score for larger images
-      if (article.thumbnail.width && article.thumbnail.height) {
-        // Score boost for high-resolution images
-        const area = article.thumbnail.width * article.thumbnail.height;
-        if (area > 250000) { // Large image (500x500+)
-          score += 20;
-        } else if (area > 90000) { // Medium image (300x300+)
-          score += 15;
-        } else if (area > 40000) { // Small image (200x200+)
-          score += 5;
-        }
-      } else {
-        // If no dimensions specified but image URL suggests high quality
-        if (
-          imgSrc.includes('1200w') || 
-          imgSrc.includes('original') || 
-          imgSrc.includes('full') ||
-          imgSrc.includes('large')
-        ) {
-          score += 15;
-        }
-      }
-    }
+    score += 20;
   }
   
-  // Score based on having a good extract (content)
-  if (article.extract) {
-    // Basic points for having any content
-    score += 10;
-    
-    // More points for longer, substantial content
-    const wordCount = article.extract.split(/\s+/).length;
-    if (wordCount > 200) { // Very detailed
-      score += 15;
-    } else if (wordCount > 100) { // Good detail
-      score += 10;
-    } else if (wordCount > 50) { // Moderate detail
-      score += 5;
-    }
-    
-    // Penalize very short extracts
-    if (wordCount < 20) {
-      score -= 15;
-    }
-    
-    // Bonus for having HTML-formatted content (usually more detailed)
-    if (article.extract_html) {
-      score += 5;
-    }
-  }
-  
-  // Score based on having a good description
-  if (article.description && article.description.length > 10) {
-    score += 5;
-  }
-  
-  // Score boost for Wikipedia articles (generally higher quality content)
-  if (article.source === 'wikipedia') {
-    score += 5;
-  }
-  
-  // Score boost for movie content (typically high quality)
-  if (article.source === 'movie') {
+  // Has an original image (0-10 points)
+  if (article.originalimage && article.originalimage.source) {
     score += 10;
   }
   
-  return score;
+  // New content sources have varying quality, adjust scores
+  if (article.source === 'hackernews') {
+    // Adjust score for Hacker News content
+    // More points if it has a URL
+    if (article.url) score += 10;
+    
+    // Penalty for very short extracts
+    if (textLength < 100) score -= 10;
+  } else if (article.source === 'wikievents' || article.source === 'onthisday') {
+    // Wiki events should all have a year
+    if (article.year) score += 10;
+    
+    // These articles are generally good quality
+    score += 10;
+  } else if (article.source === 'rss') {
+    // RSS content quality varies, but usually good if long
+    if (textLength > 300) score += 10;
+    
+    // Boost for having a URL
+    if (article.url) score += 10;
+  }
+  
+  return Math.max(0, Math.min(100, Math.round(score)));
 };
 
 // Filter articles based on quality score
@@ -1182,147 +1149,104 @@ export const filterHighQualityArticles = (articles: WikipediaArticle[], minQuali
 export const fetchMultiSourceArticles = async (
   sourceRequests: Partial<Record<ContentSource, number>>
 ): Promise<WikipediaArticle[]> => {
-  const allArticles: WikipediaArticle[] = [];
+  console.log('Fetching articles from multiple sources:', sourceRequests);
+  
+  if (Object.values(sourceRequests).every(count => count === 0)) {
+    console.warn('No article sources requested, returning empty array');
+    return [];
+  }
+  
+  // Keep track of source counts for debugging and balancing
   const sourceCounts: Record<string, number> = {};
+  const allArticles: WikipediaArticle[] = [];
   
-  // Request more articles than needed to allow for quality filtering
-  const multiplier = 2; // Request 2x the number of articles
+  // Calculate a multiplier to get the right number of articles
+  // We request more than needed to account for filtering
+  const totalRequested = Object.values(sourceRequests).reduce((sum, count) => sum + (count || 0), 0);
+  const multiplier = Math.max(1.5, Math.min(3, 100 / totalRequested));
   
-  // Fetch from each source based on the requests
-  const promises: Promise<any>[] = []; // Change to any to handle different promise return types
-  
-  // Wikipedia
-  if (sourceRequests.wikipedia && sourceRequests.wikipedia > 0) {
-    const count = sourceRequests.wikipedia * multiplier;
-    promises.push(
-      fetchRandomArticles(count)
-        .then(articles => {
-          allArticles.push(...articles);
-          sourceCounts['wikipedia'] = articles.length;
-        })
-        .catch(err => console.error('Error fetching Wikipedia articles:', err))
-    );
+  try {
+    // Start with Wikipedia sources as they're typically higher quality
+    if (sourceRequests.wikipedia && sourceRequests.wikipedia > 0) {
+      const count = sourceRequests.wikipedia * multiplier;
+      console.log(`Requesting ${count} Wikipedia articles`);
+      
+      const articles = await fetchRandomArticles(count);
+      allArticles.push(...articles);
+      sourceCounts['wikipedia'] = articles.length;
+    }
+    
+    // "On This Day" historical events
+    if ((sourceRequests.onthisday && sourceRequests.onthisday > 0) || 
+        (sourceRequests.wikievents && sourceRequests.wikievents > 0)) {
+      // Combine both types of historical events
+      const count = ((sourceRequests.onthisday || 0) + (sourceRequests.wikievents || 0)) * multiplier;
+      console.log(`Requesting ${count} historical events`);
+      
+      const articles = await fetchOnThisDayEvents(count);
+      allArticles.push(...articles);
+      sourceCounts['onthisday'] = articles.length;
+    }
+    
+    // Hacker News stories
+    if (sourceRequests.hackernews && sourceRequests.hackernews > 0) {
+      const count = sourceRequests.hackernews * multiplier;
+      console.log(`Requesting ${count} Hacker News stories`);
+      
+      const articles = await fetchHackerNewsStories(count);
+      allArticles.push(...articles);
+      sourceCounts['hackernews'] = articles.length;
+    }
+    
+    // OK.Surf trending topics
+    if (sourceRequests.oksurf && sourceRequests.oksurf > 0) {
+      const count = sourceRequests.oksurf * multiplier;
+      console.log(`Requesting ${count} OK.Surf trending topics`);
+      
+      const articles = await fetchOkSurfNews(count);
+      allArticles.push(...articles);
+      sourceCounts['oksurf'] = articles.length;
+    }
+    
+    // Reddit posts
+    if (sourceRequests.reddit && sourceRequests.reddit > 0) {
+      const count = sourceRequests.reddit * multiplier;
+      console.log(`Requesting ${count} Reddit posts`);
+      
+      const articles = await fetchRedditPosts(count);
+      allArticles.push(...articles);
+      sourceCounts['reddit'] = articles.length;
+    }
+    
+    // RSS feeds
+    if (sourceRequests.rss && sourceRequests.rss > 0) {
+      const count = sourceRequests.rss * multiplier;
+      console.log(`Requesting ${count} RSS items`);
+      
+      const articles = await fetchRssFeeds(count);
+      allArticles.push(...articles);
+      sourceCounts['rss'] = articles.length;
+    }
+    
+    // Wikipedia current events
+    if (sourceRequests.wikievents && sourceRequests.wikievents > 0) {
+      const count = sourceRequests.wikievents * multiplier;
+      console.log(`Requesting ${count} Wikipedia current events`);
+      
+      const articles = await fetchWikipediaCurrentEvents(count);
+      allArticles.push(...articles);
+      sourceCounts['wikievents'] = articles.length;
+    }
+    
+    // Log what we found
+    console.log('Articles fetched by source:', sourceCounts);
+    
+    // Balance the sources to match the requested distribution
+    return balanceSourceDistribution(allArticles, sourceRequests);
+  } catch (error) {
+    console.error('Error fetching multi-source articles:', error);
+    return [];
   }
-  
-  // Wikipedia Current Events Portal
-  if (sourceRequests.wikievents && sourceRequests.wikievents > 0) {
-    const count = sourceRequests.wikievents * multiplier;
-    promises.push(
-      fetchWikipediaCurrentEvents(count)
-        .then(articles => {
-          allArticles.push(...articles);
-          sourceCounts['wikievents'] = articles.length;
-        })
-        .catch(err => console.error('Error fetching Wikipedia current events:', err))
-    );
-  }
-  
-  // RSS Feeds
-  if (sourceRequests.rss && sourceRequests.rss > 0) {
-    const count = sourceRequests.rss * multiplier;
-    promises.push(
-      fetchRssFeeds(count)
-        .then(articles => {
-          allArticles.push(...articles);
-          sourceCounts['rss'] = articles.length;
-        })
-        .catch(err => console.error('Error fetching RSS feeds:', err))
-    );
-  }
-  
-  // Reddit
-  if (sourceRequests.reddit && sourceRequests.reddit > 0) {
-    const count = sourceRequests.reddit * multiplier;
-    promises.push(
-      fetchRedditPosts(count)
-        .then(articles => {
-          allArticles.push(...articles);
-          sourceCounts['reddit'] = articles.length;
-        })
-        .catch(err => console.error('Error fetching Reddit posts:', err))
-    );
-  }
-  
-  // Hacker News
-  if (sourceRequests.hackernews && sourceRequests.hackernews > 0) {
-    const count = sourceRequests.hackernews * multiplier;
-    promises.push(
-      fetchHackerNewsStories(count)
-        .then(articles => {
-          allArticles.push(...articles);
-          sourceCounts['hackernews'] = articles.length;
-        })
-        .catch(err => console.error('Error fetching Hacker News stories:', err))
-    );
-  }
-  
-  // On This Day
-  if (sourceRequests.onthisday && sourceRequests.onthisday > 0) {
-    const count = sourceRequests.onthisday * multiplier;
-    promises.push(
-      fetchOnThisDayEvents(count)
-        .then(articles => {
-          allArticles.push(...articles);
-          sourceCounts['onthisday'] = articles.length;
-        })
-        .catch(err => console.error('Error fetching On This Day events:', err))
-    );
-  }
-  
-  // OK Surf
-  if (sourceRequests.oksurf && sourceRequests.oksurf > 0) {
-    const count = sourceRequests.oksurf * multiplier;
-    promises.push(
-      fetchOkSurfNews(count)
-        .then(articles => {
-          allArticles.push(...articles);
-          sourceCounts['oksurf'] = articles.length;
-        })
-        .catch(err => console.error('Error fetching OK Surf news:', err))
-    );
-  }
-  
-  // Movies & TV Shows
-  if (sourceRequests.movie && sourceRequests.movie > 0) {
-    const count = sourceRequests.movie * multiplier;
-    promises.push(
-      fetchTrendingMovies(count)
-        .then(articles => {
-          allArticles.push(...articles);
-          sourceCounts['movie'] = articles.length;
-        })
-        .catch(err => console.error('Error fetching Movie/TV data:', err))
-    );
-  }
-  
-  // Wait for all fetches to complete
-  await Promise.all(promises);
-  
-  // Apply high resolution image optimization to all articles
-  const optimizedArticles = optimizeArticleImagesArray(allArticles);
-  
-  console.log('Source distribution before filtering:', sourceCounts);
-  
-  // Apply quality filtering - prioritize articles with good content and images
-  const highQualityArticles = filterHighQualityArticles(optimizedArticles);
-  
-  // Get distribution of sources after filtering
-  const finalSourceCounts: Record<string, number> = {};
-  highQualityArticles.forEach(article => {
-    const source = article.source || 'unknown';
-    finalSourceCounts[source] = (finalSourceCounts[source] || 0) + 1;
-  });
-  
-  console.log('Source distribution after filtering:', finalSourceCounts);
-  
-  // Log quality metrics
-  console.log(`Article quality filtering: ${highQualityArticles.length}/${optimizedArticles.length} articles passed quality check`);
-  
-  // Ensure we maintain a mix of sources in the final result
-  const finalResult = balanceSourceDistribution(highQualityArticles, sourceRequests);
-  
-  // Shuffle the articles to mix sources
-  return shuffleArray(finalResult);
 };
 
 // Helper function to balance sources in the final result
@@ -2132,195 +2056,5 @@ export const optimizeArticleImages = (article: WikipediaArticle): WikipediaArtic
 
 // Optimize all images in an array of WikipediaArticles
 export const optimizeArticleImagesArray = (articles: WikipediaArticle[]): WikipediaArticle[] => {
-  if (!articles || !Array.isArray(articles)) return articles;
   return articles.map(article => optimizeArticleImages(article));
-}; 
-
-// ========== MOVIE/SHOW API (Wikidata) ==========
-// Get trending movies and shows from Wikidata (open data)
-export async function fetchTrendingMovies(count: number = 5): Promise<WikipediaArticle[]> {
-  const cacheKey = 'wikidata_movies';
-  
-  const fetchFn = async () => {
-    try {
-      // Improved Wikidata SPARQL query to get high-quality movie data
-      // This query specifically targets films with awards, high IMDB ratings, and images
-      const sparqlQuery = `
-        SELECT ?film ?filmLabel ?description ?image ?date ?imdbId WHERE {
-          ?film wdt:P31 wd:Q11424.
-          ?film wdt:P577 ?date.
-          ?film wdt:P18 ?image.
-          OPTIONAL { ?film wdt:P345 ?imdbId. }
-          OPTIONAL { ?film schema:description ?description. FILTER(LANG(?description) = "en"). }
-          
-          # Ensure quality content by requiring one of these quality markers
-          {
-            # Has received an award
-            ?film wdt:P166 ?award.
-          } UNION {
-            # Or has high IMDb rating (7+)
-            ?film wdt:P345 ?id.
-            ?film p:P444 ?imdbRatingStatement.
-            ?imdbRatingStatement ps:P444 ?rating.
-            FILTER(?rating >= 7)
-          } UNION {
-            # Or is considered a notable film (featured in lists/collections)
-            ?film wdt:P1411 ?nominatedFor.
-          } UNION {
-            # Or was released recently (last 3 years)
-            BIND(YEAR(NOW()) - 3 as ?cutoffYear)
-            FILTER(YEAR(?date) >= ?cutoffYear)
-          }
-          
-          SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
-        }
-        ORDER BY DESC(?date)
-        LIMIT 50
-      `;
-      
-      const url = 'https://query.wikidata.org/sparql';
-      const response = await axios.get(url, {
-        params: {
-          query: sparqlQuery,
-          format: 'json'
-        },
-        headers: {
-          'Accept': 'application/sparql-results+json',
-          'User-Agent': 'WikiApp/1.0'
-        }
-      });
-      
-      if (!response.data || !response.data.results || !response.data.results.bindings || 
-          response.data.results.bindings.length === 0) {
-        console.error('No movie data found from Wikidata');
-        return createMockMovieData(count);
-      }
-      
-      const results = response.data.results.bindings;
-      console.log(`Fetched ${results.length} movies from Wikidata`);
-      
-      // Convert to WikipediaArticle format
-      const articles = results.map((movie: any) => {
-        const title = movie.filmLabel?.value || 'Unknown Movie';
-        const extract = movie.description?.value || `A film titled "${title}"`;
-        const year = movie.date?.value ? new Date(movie.date.value).getFullYear() : '';
-        const wikidataId = movie.film.value.split('/').pop();
-        
-        // Format thumbnail URL - request a larger size directly
-        let thumbnailUrl = '';
-        if (movie.image?.value) {
-          // Get proper Commons image URL
-          const filename = movie.image.value.split('/').pop();
-          thumbnailUrl = `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(filename)}?width=800`;
-        }
-        
-        return {
-          pageid: parseInt(wikidataId.replace('Q', ''), 10),
-          title: title,
-          extract: extract,
-          thumbnail: thumbnailUrl ? { 
-            source: thumbnailUrl,
-            width: 800,
-            height: 1200
-          } : undefined,
-          description: `${year ? year + ' • ' : ''}Film`,
-          source: 'movie' as ContentSource,
-          url: `https://www.wikidata.org/wiki/${wikidataId}`
-        };
-      });
-      
-      // Filter for articles with thumbnails
-      const withImages = articles.filter((a: WikipediaArticle) => a.thumbnail?.source);
-      
-      if (withImages.length < count) {
-        console.warn(`Only found ${withImages.length} movies with images, using mock data to supplement`);
-        const mockMovies = createMockMovieData(count - withImages.length);
-        return [...withImages, ...mockMovies].slice(0, count);
-      }
-      
-      // Return a random selection from the filtered results
-      return shuffleArray(withImages).slice(0, count);
-    } catch (error) {
-      console.error('Error fetching movie data from Wikidata:', error);
-      return createMockMovieData(count);
-    }
-  };
-  
-  return await getFromCacheOrFetch(cacheKey, fetchFn);
-}
-
-// Fallback data for movies in case the API is down
-function createMockMovieData(count: number): WikipediaArticle[] {
-  console.log("Creating mock movie data:", count);
-  
-  const mockMovies = [
-    {
-      pageid: 12345678,
-      title: "Dune: Part Two",
-      extract: "Paul Atreides unites with Chani and the Fremen while seeking revenge against the conspirators who destroyed his family. Facing a choice between the love of his life and the fate of the universe, he must prevent a terrible future only he can foresee.",
-      thumbnail: {
-        source: "https://upload.wikimedia.org/wikipedia/en/thumb/5/58/Dune_Part_Two_poster.jpeg/320px-Dune_Part_Two_poster.jpeg",
-        width: 320,
-        height: 500
-      },
-      description: "2024 • Film",
-      source: 'movie' as ContentSource,
-      url: "https://www.wikidata.org/wiki/Q63985561"
-    },
-    {
-      pageid: 23456789,
-      title: "Oppenheimer",
-      extract: "The story of American scientist J. Robert Oppenheimer and his role in the development of the atomic bomb.",
-      thumbnail: {
-        source: "https://upload.wikimedia.org/wikipedia/en/thumb/4/4a/Oppenheimer_%28film%29.jpg/320px-Oppenheimer_%28film%29.jpg",
-        width: 320,
-        height: 500
-      },
-      description: "2023 • Film",
-      source: 'movie' as ContentSource,
-      url: "https://www.wikidata.org/wiki/Q55001181"
-    },
-    {
-      pageid: 34567890,
-      title: "Everything Everywhere All at Once",
-      extract: "A middle-aged Chinese immigrant is swept up in an insane adventure in which she alone can save existence by exploring other universes and connecting with the lives she could have led.",
-      thumbnail: {
-        source: "https://upload.wikimedia.org/wikipedia/en/1/1e/Everything_Everywhere_All_at_Once.jpg",
-        width: 320,
-        height: 500
-      },
-      description: "2022 • Film",
-      source: 'movie' as ContentSource,
-      url: "https://www.wikidata.org/wiki/Q83808505"
-    },
-    {
-      pageid: 45678901,
-      title: "Poor Things",
-      extract: "The incredible tale about the fantastical evolution of Bella Baxter, a young woman brought back to life by the brilliant and unorthodox scientist Dr. Godwin Baxter.",
-      thumbnail: {
-        source: "https://upload.wikimedia.org/wikipedia/en/f/fa/Poor_Things_%28film%29.jpg",
-        width: 320,
-        height: 500
-      },
-      description: "2023 • Film",
-      source: 'movie' as ContentSource,
-      url: "https://www.wikidata.org/wiki/Q111323779"
-    },
-    {
-      pageid: 56789012,
-      title: "Parasite",
-      extract: "Greed and class discrimination threaten the newly formed symbiotic relationship between the wealthy Park family and the destitute Kim clan.",
-      thumbnail: {
-        source: "https://upload.wikimedia.org/wikipedia/en/5/53/Parasite_%282019_film%29.png",
-        width: 320,
-        height: 500
-      },
-      description: "2019 • Film",
-      source: 'movie' as ContentSource,
-      url: "https://www.wikidata.org/wiki/Q61448040"
-    }
-  ];
-  
-  // Return a slice of the mock data up to the requested count
-  return mockMovies.slice(0, count);
-}
+};

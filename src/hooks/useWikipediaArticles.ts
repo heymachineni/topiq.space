@@ -20,16 +20,15 @@ const REFRESH_INTERVAL = 2 * 60 * 60 * 1000; // Refresh every 2 hours
 const BATCH_SIZE = 20; // Number of articles to fetch in each batch
 const MAX_CACHED_ARTICLES = 100; // Maximum number of articles to keep in cache
 
-// Source distribution for a balanced content mix
-const SOURCES_CONFIG: Record<ContentSource, { weight: number }> = {
-  'wikipedia': { weight: 15 },    // 15% Wikipedia
-  'wikievents': { weight: 10 },   // 10% Wikipedia Current Events
-  'rss': { weight: 15 },          // 15% RSS Feeds
-  'reddit': { weight: 10 },       // 10% Reddit
-  'onthisday': { weight: 5 },     // 5% On This Day
-  'oksurf': { weight: 15 },       // 15% OK Surf
-  'hackernews': { weight: 15 },   // 15% Hacker News
-  'movie': { weight: 15 }         // 15% Movie & TV data
+// Configure the weight/distribution of sources
+const sourceWeights = {
+  'wikipedia': { weight: 30 },   // 30% Wikipedia
+  'rss': { weight: 20 },         // 20% RSS Feeds
+  'hackernews': { weight: 15 },  // 15% Hacker News
+  'onthisday': { weight: 15 },   // 15% On This Day
+  'oksurf': { weight: 10 },      // 10% OK.Surf
+  'reddit': { weight: 5 },       // 5% Reddit
+  'wikievents': { weight: 5 }    // 5% Wikipedia events
 };
 
 // Helper to get a random integer in a range
@@ -46,18 +45,28 @@ export const useWikipediaArticles = (initialCount: number = 10) => {
   const lastRefreshTime = useRef<number>(0);
   const viewedArticleIds = useRef<Set<number>>(new Set());
   
-  // Keep track of distribution across sources
-  const [sourceDistribution, setSourceDistribution] = useState<Record<ContentSource, number>>({
+  // Default state for source counts
+  const [sourceCountsState, setSourceCountsState] = useState<Record<ContentSource, number>>({
     wikipedia: 0,
-    wikievents: 0,
     rss: 0,
-    reddit: 0,
+    hackernews: 0,
     onthisday: 0,
     oksurf: 0,
-    hackernews: 0,
-    movie: 0
+    reddit: 0,
+    wikievents: 0
   });
   
+  // All-time counts since app start
+  const [allSourceCountsState, setAllSourceCountsState] = useState<Record<ContentSource, number>>({
+    wikipedia: 0,
+    rss: 0,
+    hackernews: 0,
+    onthisday: 0,
+    oksurf: 0,
+    reddit: 0,
+    wikievents: 0
+  });
+
   // Update source counts in distribution
   const updateSourceCounts = useCallback((articleList: WikipediaArticle[]) => {
     const counts: Record<ContentSource, number> = {
@@ -68,7 +77,6 @@ export const useWikipediaArticles = (initialCount: number = 10) => {
       onthisday: 0,
       oksurf: 0,
       hackernews: 0,
-      movie: 0
     };
     
     articleList.forEach(article => {
@@ -76,7 +84,8 @@ export const useWikipediaArticles = (initialCount: number = 10) => {
       counts[source] = (counts[source] || 0) + 1;
     });
     
-    setSourceDistribution(counts);
+    setSourceCountsState(counts);
+    setAllSourceCountsState(prev => ({ ...prev, ...counts }));
   }, []);
 
   // Fetch fresh articles from all sources
@@ -92,13 +101,13 @@ export const useWikipediaArticles = (initialCount: number = 10) => {
       
       // Calculate how many articles to request from each source based on weights
       const sourceRequests: Partial<Record<ContentSource, number>> = {};
-      const totalWeight = Object.values(SOURCES_CONFIG).reduce((sum, config) => sum + config.weight, 0);
+      const totalWeight = Object.values(sourceWeights).reduce((sum, config) => sum + config.weight, 0);
       
       let remainingCount = count;
       
       // Distribute the count across sources based on weights
-      for (const source of Object.keys(SOURCES_CONFIG) as ContentSource[]) {
-        const weight = SOURCES_CONFIG[source].weight;
+      for (const source of Object.keys(sourceWeights) as ContentSource[]) {
+        const weight = sourceWeights[source].weight;
         const sourceCount = Math.round((weight / totalWeight) * count);
         sourceRequests[source] = sourceCount;
         remainingCount -= sourceCount;

@@ -30,7 +30,7 @@ export interface WikipediaPage {
 }
 
 // Source types for multi-source content
-export type ContentSource = 'wikipedia' | 'onthisday' | 'hackernews' | 'oksurf' | 'reddit' | 'rss' | 'wikievents' | 'movie';
+export type ContentSource = 'wikipedia' | 'onthisday' | 'hackernews' | 'oksurf' | 'reddit' | 'rss' | 'wikievents';
 export type ArticleSource = ContentSource; // Alias for backward compatibility
 
 export interface WikipediaArticle {
@@ -70,7 +70,7 @@ export interface AppSettings {
 // View mode type
 export type ViewMode = 'fullscreen' | 'grid' | 'stack';
 
-// Media types for Wikimedia Commons and NASA integration
+// Media types for related content
 export interface MediaContent {
   title: string;
   description: string;
@@ -81,12 +81,6 @@ export interface MediaContent {
   author?: string;
   dateCreated?: string;
   source: 'wikimedia' | 'nasa' | 'other';
-}
-
-export interface MediaGalleryProps {
-  media: MediaContent[];
-  onClose: () => void;
-  isOpen: boolean;
 }
 
 // Component props types

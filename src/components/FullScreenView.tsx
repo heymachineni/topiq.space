@@ -77,56 +77,53 @@ const sourceConfig: Record<ContentSource, { label: string, color: string, gradie
 
 // Get source badge for articles
 const getSourceBadge = (article: WikipediaArticle) => {
-  if (article.source === 'wikipedia' || !article.source) {
-    return {
-      label: 'Wikipedia',
-      color: 'from-blue-500 to-blue-700'
-    };
-  } else if (article.source === 'hackernews') {
+  const badge = {
+    label: 'Wikipedia',
+    color: 'from-blue-500 to-blue-700',
+    icon: '🌐'
+  };
+  
+  if (!article || !article.source) {
+    return badge;
+  }
+  
+  if (article.source === 'hackernews') {
     return {
       label: 'Hacker News',
-      color: 'from-orange-500 to-orange-700'
+      color: 'from-orange-500 to-orange-700',
+      icon: '👨‍💻'
     };
-  } else if (article.source === 'onthisday') {
-    // Create a dynamic date for On This Day
-    const today = new Date();
-    const formattedDate = today.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    
+  } else if (article.source === 'wikievents' || article.source === 'onthisday') {
+    let label = 'On This Day';
+    if (article.year) {
+      label = `${article.year}`;
+    }
     return {
-      label: `on ${formattedDate}`,
-      color: 'from-green-500 to-teal-600'
+      label,
+      color: 'from-green-600 to-green-800',
+      icon: '📅'
     };
-  } else if (article.source === 'oksurf') {
+  } else if (article.source === 'rss') {
     return {
-      label: 'Trending',
-      color: 'from-purple-500 to-pink-600'
+      label: 'RSS',
+      color: 'from-rose-500 to-rose-700',
+      icon: '📰'
     };
   } else if (article.source === 'reddit') {
     return {
       label: 'Reddit',
-      color: 'from-red-500 to-red-700'
+      color: 'from-orange-500 to-orange-700',
+      icon: '👽'
     };
-  } else if (article.source === 'rss') {
+  } else if (article.source === 'oksurf') {
     return {
-      label: 'News',
-      color: 'from-emerald-500 to-emerald-700'
-    };
-  } else if (article.source === 'wikievents') {
-    return {
-      label: 'Wikipedia',
-      color: 'from-indigo-500 to-indigo-700'
-    };
-  } else if (article.source === 'movie') {
-    return {
-      label: 'Movie',
-      color: 'from-amber-500 to-amber-700'
+      label: 'Trending',
+      color: 'from-cyan-500 to-cyan-700',
+      icon: '🔍'
     };
   }
   
-  return {
-    label: 'Other',
-    color: 'from-gray-500 to-gray-700'
-  };
+  return badge;
 };
 
 // Format date like "Apr 13"
@@ -138,24 +135,21 @@ const formatDate = (dateStr: string) => {
 
 // Get background for articles without thumbnails - pastel gradients
 const getArticleBackground = (article: WikipediaArticle): string | undefined => {
-  if (article.thumbnail?.source) return undefined;
+  if (!article || !article.source) {
+    return 'linear-gradient(135deg, #3b82f6, #1e3a8a)'; // Default blue gradient for Wikipedia
+  }
   
-  const source = article.source || 'wikipedia';
-  
-  // Enhanced pastel gradients for better visual appeal
-  const gradients = {
-    wikipedia: 'linear-gradient(135deg, #a8c0ff, #3f5efb)',
-    onthisday: 'linear-gradient(135deg, #d4e7ff, #8aabdb)',
-    hackernews: 'linear-gradient(135deg, #ffcf8c, #ffb347)',
-    oksurf: 'linear-gradient(135deg, #c2e9fb, #81d4fa)',
-    reddit: 'linear-gradient(135deg, #ffcccb, #e57373)',
-    rss: 'linear-gradient(135deg, #a7f3d0, #10b981)',
-    wikievents: 'linear-gradient(135deg, #c7d2fe, #6366f1)',
-    movie: 'linear-gradient(135deg, #ffd591, #f0b83f)'
+  const gradients: Record<ContentSource, string> = {
+    wikipedia: 'linear-gradient(135deg, #3b82f6, #1e3a8a)',
+    hackernews: 'linear-gradient(135deg, #f97316, #c2410c)',
+    wikievents: 'linear-gradient(135deg, #22c55e, #15803d)',
+    onthisday: 'linear-gradient(135deg, #22c55e, #15803d)',
+    reddit: 'linear-gradient(135deg, #f97316, #c2410c)',
+    rss: 'linear-gradient(135deg, #f43f5e, #be123c)',
+    oksurf: 'linear-gradient(135deg, #06b6d4, #0e7490)'
   };
   
-  // Use type assertion to ensure TypeScript knows all sources are covered
-  return gradients[source as keyof typeof gradients] || gradients.wikipedia;
+  return gradients[article.source];
 };
 
 // Clean Hacker News extract to remove metadata and HTML tags
@@ -690,62 +684,96 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
     }, 1200);
   }, [currentIndex, isNavigationLocked, isOnCooldown]);
   
-  // Open the Wikipedia article
+  // Handle read more button click to open original source
   const handleReadMore = useCallback(() => {
-    if (!currentArticle) return;
+    if (!currentArticleRef.current) return;
     
-    // Open appropriate URL based on source
+    const currentArticle = currentArticleRef.current;
+    
     if (currentArticle.source === 'hackernews' && currentArticle.url) {
+      // Open Hacker News URL
       window.open(currentArticle.url, '_blank');
-    } else if (currentArticle.source === 'wikipedia' || !currentArticle.source) {
-      window.open(`https://en.wikipedia.org/wiki/${encodeURIComponent(currentArticle.title)}`, '_blank');
-    } else if (currentArticle.source === 'wikievents') {
-      window.open(`https://en.wikipedia.org/wiki/${encodeURIComponent(currentArticle.title)}`, '_blank');
-    } else if (currentArticle.source === 'onthisday') {
-      // Get current date for the on this day page
-      const today = new Date();
-      const month = today.getMonth() + 1; // getMonth() is 0-indexed
-      const day = today.getDate();
-      
-      // Redirect to Wikipedia's On This Day page instead of Google search
-      window.open(`https://en.wikipedia.org/wiki/Wikipedia:On_this_day/${month}_${day}`, '_blank');
-    } else if (currentArticle.source === 'oksurf') {
-      // For OK.Surf, search the headline
-      const query = encodeURIComponent(currentArticle.title);
-      window.open(`https://www.google.com/search?q=${query}`, '_blank');
-    } else if (currentArticle.source === 'reddit' && currentArticle.url) {
-      window.open(currentArticle.url, '_blank');
+    } else if (currentArticle.source === 'wikipedia' && currentArticle.title) {
+      // Open Wikipedia page
+      const encodedTitle = encodeURIComponent(currentArticle.title.replace(/ /g, '_'));
+      window.open(`https://en.wikipedia.org/wiki/${encodedTitle}`, '_blank');
     } else if (currentArticle.source === 'rss' && currentArticle.url) {
+      // Open RSS article URL
       window.open(currentArticle.url, '_blank');
-    } else if (currentArticle.source === 'movie' && currentArticle.url) {
-      // Open IMDb page for movies
+    } else if (currentArticle.source === 'reddit' && currentArticle.url) {
+      // Open Reddit post
+      window.open(currentArticle.url, '_blank');
+    } else if (currentArticle.source === 'oksurf' && currentArticle.url) {
+      // Open OK.Surf result
+      window.open(currentArticle.url, '_blank');
+    } else if (currentArticle.url) {
+      // Generic fallback for anything with a URL
       window.open(currentArticle.url, '_blank');
     }
-  }, [currentArticle]);
-  
-  // Get the appropriate read more button text based on article source
-  const getReadMoreButtonText = useCallback((source?: ContentSource): string => {
+  }, []);
+
+  // Get the read more button text based on article source
+  const getReadMoreButtonText = (source?: ContentSource) => {
     switch (source) {
       case 'hackernews':
         return 'Read on Hacker News';
       case 'wikipedia':
         return 'Read on Wikipedia';
       case 'wikievents':
-        return 'Read on Wikipedia';
       case 'onthisday':
-        return 'Read full story';
-      case 'oksurf':
-        return 'Check it out';
+        return 'Read about this day';
       case 'reddit':
         return 'Read on Reddit';
       case 'rss':
-        return 'Read on RSS';
-      case 'movie':
-        return 'Read more on Wikimedia';
+        return 'Read full article';
+      case 'oksurf':
+        return 'View search result';
       default:
         return 'Read more';
     }
-  }, []);
+  };
+
+  // Get gradient background for article based on source
+  const getSourceBackground = (source?: ContentSource) => {
+    switch (source) {
+      case 'wikipedia':
+        return {
+          gradient: 'linear-gradient(135deg, #3b82f6, #1e3a8a)',
+          emoji: '🌐'
+        };
+      case 'hackernews':
+        return {
+          gradient: 'linear-gradient(135deg, #f97316, #c2410c)',
+          emoji: '👨‍💻'
+        };
+      case 'wikievents':
+      case 'onthisday':
+        return {
+          gradient: 'linear-gradient(135deg, #22c55e, #15803d)',
+          emoji: '📅'
+        };
+      case 'reddit':
+        return {
+          gradient: 'linear-gradient(135deg, #ff4500, #d73a00)',
+          emoji: '👽'
+        };
+      case 'oksurf':
+        return {
+          gradient: 'linear-gradient(135deg, #00C9FF, #92FE9D)',
+          emoji: '🌍'
+        };
+      case 'rss':
+        return {
+          gradient: 'linear-gradient(135deg, #FF512F, #DD2476)',
+          emoji: '📰'
+        };
+      default:
+        return {
+          gradient: 'linear-gradient(135deg, #232526, #414345)',
+          emoji: '🌐'
+        };
+    }
+  };
   
   // Navigate to likes page
   const handleViewLikes = () => {
@@ -869,57 +897,6 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
       }
     }
   }, [currentIndex, articles, currentArticle]);
-  
-  // Function to get source-specific background and emoji
-  const getSourceBackground = (source?: ContentSource) => {
-    switch(source) {
-      case 'onthisday':
-        return {
-          gradient: 'linear-gradient(135deg, #8E2DE2, #4A00E0)',
-          emoji: '📅'
-        };
-      case 'hackernews':
-        return {
-          gradient: 'linear-gradient(135deg, #FF8008, #FFC837)',
-          emoji: '💻'
-        };
-      case 'wikipedia':
-        return {
-          gradient: 'linear-gradient(135deg, #396afc, #2948ff)',
-          emoji: '📚'
-        };
-      case 'wikievents':
-        return {
-          gradient: 'linear-gradient(135deg, #FF5F6D, #FFC371)',
-          emoji: '🌍'
-        };
-      case 'reddit':
-        return {
-          gradient: 'linear-gradient(135deg, #FF4500, #FF8C78)',
-          emoji: '💻'
-        };
-      case 'oksurf':
-        return {
-          gradient: 'linear-gradient(135deg, #00C9FF, #92FE9D)',
-          emoji: '🌍'
-        };
-      case 'rss':
-        return {
-          gradient: 'linear-gradient(135deg, #FF512F, #DD2476)',
-          emoji: '📰'
-        };
-      case 'movie':
-        return {
-          gradient: 'linear-gradient(135deg, #FFD700, #FFA500)',
-          emoji: '🎬'
-        };
-      default:
-        return {
-          gradient: 'linear-gradient(135deg, #232526, #414345)',
-          emoji: '🌐'
-        };
-    }
-  };
   
   // Update loading state to match the podcast loading style
   if (isLoading && articles.length === 0) {
@@ -1153,10 +1130,12 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
               {/* Article content */}
               <div className="flex items-start justify-between relative">
                 <div className="flex-1 pr-4">
-                  {/* Article title */}
-                  <h2 className="text-4xl font-bold font-garamond mb-0.5 pr-16 text-white" style={{ fontSize: '24px', lineHeight: '1.2' }}>
-                    {currentArticle.title}
-                  </h2>
+                  {/* Article title with gallery button */}
+                  <div className="flex items-start mb-0.5">
+                    <h2 className="text-4xl font-bold font-garamond pr-3 text-white" style={{ fontSize: '24px', lineHeight: '1.2' }}>
+                      {currentArticle.title}
+                    </h2>
+                  </div>
                   
                   {/* Description */}
                   {currentArticle.description && currentArticle.source !== 'hackernews' && (
