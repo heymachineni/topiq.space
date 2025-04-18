@@ -163,107 +163,62 @@ export async function fetchRandomWikipediaArticle(): Promise<WikipediaArticle> {
   
   const fetchFn = async () => {
     try {
-      // Use parallel requests instead of sequential attempts for better performance
-      const MAX_PARALLEL_REQUESTS = 3; // Number of parallel requests to make
-      
-      console.log(`Making ${MAX_PARALLEL_REQUESTS} parallel requests for random Wikipedia articles`);
-      
-      // Create an array of promises for parallel execution
-      const articlePromises = Array(MAX_PARALLEL_REQUESTS).fill(null).map(async () => {
+      // Use parallel fetching to improve performance
+      // Fetch more random articles in parallel to increase chances of finding good ones
+      const fetchPromises = Array(5).fill(null).map(async () => {
         try {
           const response = await axios.get('https://en.wikipedia.org/api/rest_v1/page/random/summary');
-          const data = response.data;
-          
-          // Quality checks
-          const hasQualityThumbnail = data.thumbnail && data.thumbnail.width >= 800;
-          const hasGoodExtract = data.extract && data.extract.length >= 100;
-          const hasDisplayTitle = !!data.title;
-          
-          // Only return articles that meet quality criteria
-          if (hasQualityThumbnail && hasGoodExtract && hasDisplayTitle) {
-            // Convert thumbnail to high-res
-            const highResThumbnail = getHighResImage(data.thumbnail);
-            
-            return {
-              pageid: data.pageid,
-              title: data.title,
-              extract: data.extract,
-              thumbnail: highResThumbnail,
-              description: data.description,
-              source: 'wikipedia' as ContentSource,
-              url: data.content_urls?.desktop?.page,
-              qualityScore: 100 // Perfect score for sorting
-            };
-          }
-          
-          // If article doesn't meet all criteria, assign it a lower score but still return
-          const qualityScore = (hasQualityThumbnail ? 60 : 0) + 
-                             (hasGoodExtract ? 30 : 0) + 
-                             (hasDisplayTitle ? 10 : 0);
-                             
-          // Only return if it has at least a thumbnail and title
-          if (hasQualityThumbnail && hasDisplayTitle) {
-            // Convert thumbnail to high-res
-            const highResThumbnail = getHighResImage(data.thumbnail);
-            
-            return {
-              pageid: data.pageid,
-              title: data.title,
-              extract: data.extract || 'No description available',
-              thumbnail: highResThumbnail,
-              description: data.description,
-              source: 'wikipedia' as ContentSource,
-              url: data.content_urls?.desktop?.page,
-              qualityScore
-            };
-          }
-          
-          return null;
+          return response.data;
         } catch (error) {
-          console.error('Error in parallel Wikipedia article fetch:', error);
+          console.error('Error in parallel fetch of random article:', error);
           return null;
         }
       });
       
       // Wait for all parallel requests to complete
-      const results = await Promise.all(articlePromises);
+      const results = await Promise.all(fetchPromises);
+      const validResults = results.filter(result => 
+        result !== null && 
+        result.title && 
+        result.extract && 
+        result.extract.length >= 100 &&
+        result.thumbnail  // Only require that it has a thumbnail, don't check width
+      );
       
-      // Filter out null results and sort by quality score
-      const validArticles = results.filter(article => article !== null)
-                                  .sort((a, b) => (b?.qualityScore || 0) - (a?.qualityScore || 0));
-      
-      console.log(`Received ${validArticles.length} valid articles from parallel requests`);
-      
-      if (validArticles.length > 0) {
-        // Return the highest quality article
-        const bestArticle = validArticles[0];
-        // Remove the quality score before returning
-        const { qualityScore, ...articleWithoutScore } = bestArticle;
-        return articleWithoutScore;
-      }
-      
-      // If no valid articles found, make one final attempt
-      console.log('No high-quality articles found from parallel requests, trying one more time');
-      const fallbackResponse = await axios.get('https://en.wikipedia.org/api/rest_v1/page/random/summary');
-      const fallbackData = fallbackResponse.data;
-      
-      // Still require a thumbnail
-      if (fallbackData.thumbnail) {
-        const highResThumbnail = getHighResImage(fallbackData.thumbnail);
+      if (validResults.length > 0) {
+        // Pick the first valid result
+        const data = validResults[0];
+        console.log(`Found suitable Wikipedia article: ${data.title}`);
+        
+        // Get high-res version of the thumbnail
+        const highResThumbnail = getHighResImage(data.thumbnail);
         
         return {
-          pageid: fallbackData.pageid,
-          title: fallbackData.title || 'Wikipedia Article',
-          extract: fallbackData.extract || 'No description available',
+          pageid: data.pageid,
+          title: data.title,
+          extract: data.extract,
           thumbnail: highResThumbnail,
-          description: fallbackData.description,
+          description: data.description,
           source: 'wikipedia' as ContentSource,
-          url: fallbackData.content_urls?.desktop?.page
+          url: data.content_urls?.desktop?.page
         };
       }
       
-      // If all else fails, throw an error
-      throw new Error('Could not find any suitable Wikipedia article after multiple attempts');
+      // If no valid result with image was found from the parallel attempts,
+      // make one more direct fetch with more relaxed criteria
+      const fallbackResponse = await axios.get('https://en.wikipedia.org/api/rest_v1/page/random/summary');
+      const fallbackData = fallbackResponse.data;
+      
+      // Accept even without thumbnail as last resort
+      return {
+        pageid: fallbackData.pageid,
+        title: fallbackData.title || 'Wikipedia Article',
+        extract: fallbackData.extract || 'No description available',
+        thumbnail: fallbackData.thumbnail ? getHighResImage(fallbackData.thumbnail) : undefined,
+        description: fallbackData.description,
+        source: 'wikipedia' as ContentSource,
+        url: fallbackData.content_urls?.desktop?.page
+      };
     } catch (error) {
       console.error('Error fetching random Wikipedia article:', error);
       throw error;
@@ -296,7 +251,7 @@ export async function fetchArticlesBySearch(searchTerm: string): Promise<Wikiped
     const cacheKey = `wikipedia_search_${searchTerm}`;
     
     const fetchFn = async () => {
-      // Request more results than needed since we'll filter some out for quality
+      // Request more results to have a better pool of articles to choose from
       const searchResponse = await axios.get(`https://en.wikipedia.org/w/api.php`, {
         params: {
           action: 'query',
@@ -304,66 +259,76 @@ export async function fetchArticlesBySearch(searchTerm: string): Promise<Wikiped
           srsearch: searchTerm,
           format: 'json',
           origin: '*',
-          srlimit: 30 // Significantly increased to get more candidates for high-quality filtering
+          srlimit: 40 // Significantly increased to get more candidates
         }
       });
       
       const searchResults = searchResponse.data.query.search;
       console.log(`Received ${searchResults.length} initial search results for "${searchTerm}"`);
       
-      // Fetch full data for each search result
-      const articlePromises = searchResults.map(async (result: any) => {
-        try {
-          const titleParam = encodeURIComponent(result.title);
-          const response = await axios.get(`https://en.wikipedia.org/api/rest_v1/page/summary/${titleParam}`);
-          const data = response.data;
-          
-          // Quality checks:
-          // 1. Must have a high-quality thumbnail
-          // 2. Must have a good extract (at least 100 characters)
-          // 3. Must have a displaytitle
-          const hasQualityThumbnail = data.thumbnail && data.thumbnail.width >= 800;
-          const hasGoodExtract = data.extract && data.extract.length >= 100;
-          const hasDisplayTitle = !!data.title;
-          
-          if (!hasQualityThumbnail || !hasGoodExtract || !hasDisplayTitle) {
-            console.log(`Article "${data.title}" doesn't meet quality criteria, skipping`);
-            return null;
-          }
-          
-          // Use utility to convert thumbnail to high-res
-          const highResThumbnail = getHighResImage(data.thumbnail);
-          
-          return {
-            pageid: data.pageid,
-            title: data.title,
-            extract: data.extract,
-            thumbnail: highResThumbnail,
-            description: data.description,
-            source: 'wikipedia' as ContentSource,
-            url: data.content_urls?.desktop?.page
-          };
-        } catch (error) {
-          console.error(`Error fetching article data for ${result.title}:`, error);
-          return null;
-        }
-      });
+      // Create batches for parallel processing - process 10 at a time
+      const batchSize = 10;
+      const batches = [];
       
-      // Wait for all article data to be fetched
-      const articles = await Promise.all(articlePromises);
-      
-      // Filter out any null results
-      const filteredArticles = articles.filter(article => article !== null);
-      console.log(`Found ${filteredArticles.length} high-quality articles for search "${searchTerm}"`);
-      
-      // If we didn't get enough high-quality articles, try to fill in with additional random articles
-      if (filteredArticles.length < 5) {
-        console.log(`Only found ${filteredArticles.length} high-quality articles for "${searchTerm}", fetching additional articles`);
-        const additionalArticles = await fetchRandomArticles(10);
-        filteredArticles.push(...additionalArticles.slice(0, 10 - filteredArticles.length));
+      for (let i = 0; i < searchResults.length; i += batchSize) {
+        batches.push(searchResults.slice(i, i + batchSize));
       }
       
-      return filteredArticles;
+      const processedArticles = [];
+      
+      // Process each batch in parallel
+      for (const batch of batches) {
+        // Fetch full data for each search result in the batch
+        const batchPromises = batch.map(async (result: any) => {
+          try {
+            const titleParam = encodeURIComponent(result.title);
+            const response = await axios.get(`https://en.wikipedia.org/api/rest_v1/page/summary/${titleParam}`);
+            const data = response.data;
+            
+            // Only require the article to have any thumbnail, no width check
+            // Plus a good extract and title
+            if (!data.thumbnail || !data.extract || data.extract.length < 100 || !data.title) {
+              return null;
+            }
+            
+            // Use utility to convert thumbnail to high-res
+            const highResThumbnail = getHighResImage(data.thumbnail);
+            
+            return {
+              pageid: data.pageid,
+              title: data.title,
+              extract: data.extract,
+              thumbnail: highResThumbnail,
+              description: data.description,
+              source: 'wikipedia' as ContentSource,
+              url: data.content_urls?.desktop?.page
+            };
+          } catch (error) {
+            console.error(`Error fetching article data for ${result.title}:`, error);
+            return null;
+          }
+        });
+        
+        // Wait for the current batch to complete
+        const batchResults = await Promise.all(batchPromises);
+        processedArticles.push(...batchResults.filter(article => article !== null));
+        
+        // If we already have enough articles, stop processing batches
+        if (processedArticles.length >= 10) {
+          break;
+        }
+      }
+      
+      console.log(`Found ${processedArticles.length} articles with images for search "${searchTerm}"`);
+      
+      // If we didn't get enough articles, try to fill in with additional random articles
+      if (processedArticles.length < 5) {
+        console.log(`Only found ${processedArticles.length} articles for "${searchTerm}", fetching additional articles`);
+        const additionalArticles = await fetchRandomArticles(10);
+        processedArticles.push(...additionalArticles.slice(0, 10 - processedArticles.length));
+      }
+      
+      return processedArticles;
     };
     
     return await getFromCacheOrFetch(cacheKey, fetchFn);
@@ -438,10 +403,8 @@ export async function fetchHackerNewsStories(count: number = 5): Promise<Wikiped
     try {
       console.log("Fetching HackerNews stories, requested count:", count);
       
-      // Get more IDs than needed to account for filtering
-      const requestMultiplier = 6; // Multiplier for filtering
-      
-      // Fetch top story IDs - use more resilient endpoints
+      // Since HN stories don't have images by default, we'll need to fetch more
+      // and then filter for those with images from the article content
       const topStoriesEndpoints = [
         'https://hacker-news.firebaseio.com/v0/topstories.json',
         'https://hacker-news.firebaseio.com/v0/beststories.json',
@@ -456,7 +419,7 @@ export async function fetchHackerNewsStories(count: number = 5): Promise<Wikiped
         try {
           storiesResponse = await axios.get(endpoint, { timeout: 5000 });
           if (storiesResponse.data && Array.isArray(storiesResponse.data) && storiesResponse.data.length > 0) {
-            storyIds = storiesResponse.data.slice(0, count * requestMultiplier);
+            storyIds = storiesResponse.data.slice(0, count * 8); // Fetch many more than needed to find ones with images
             console.log(`Successfully fetched ${storyIds.length} HackerNews story IDs from ${endpoint}`);
             break;
           }
@@ -468,14 +431,13 @@ export async function fetchHackerNewsStories(count: number = 5): Promise<Wikiped
       
       if (storyIds.length === 0) {
         console.error("Failed to fetch any HackerNews story IDs from all endpoints");
-        // Return mock data as fallback
+        // Return mock data with images as fallback
         return createMockHackerNewsStories(count);
       }
       
-      // Use OpenGraph API to fetch meta data from URLs for story previews including images
-      const fetchStoryWithImage = async (id: number) => {
+      // Fetch details for each story in parallel with timeouts
+      const storyPromises = storyIds.map(async (id: number) => {
         try {
-          // First get the HN story details
           const response = await axios.get(`https://hacker-news.firebaseio.com/v0/item/${id}.json`, 
                                       { timeout: 3000 });
           const story = response.data;
@@ -485,90 +447,55 @@ export async function fetchHackerNewsStories(count: number = 5): Promise<Wikiped
             return null;
           }
           
+          // Try to fetch the article page to extract metadata including images
           try {
-            // Use OpenGraph API to fetch metadata including images
-            const ogResponse = await axios.get(`https://opengraph.io/api/1.1/site/${encodeURIComponent(story.url)}`, {
-              params: {
-                app_id: 'a22d55a8-1453-4678-99e8-a9c4a539753e', // Free tier API key for OpenGraph.io
-              },
-              timeout: 5000
+            const pageResponse = await axios.get(`https://api.microlink.io?url=${encodeURIComponent(story.url)}&screenshot=true`, { 
+              timeout: 5000 
             });
             
-            const ogData = ogResponse.data;
+            const metadata = pageResponse.data.data;
             
-            // Check if we have an image of decent quality
-            if (ogData.hybridGraph && 
-                ogData.hybridGraph.image && 
-                typeof ogData.hybridGraph.image === 'string' && 
-                ogData.hybridGraph.image.length > 10) {
-              
-              // Calculate a score for the quality of the metadata
-              const hasTitle = !!ogData.hybridGraph.title;
-              const hasDescription = !!ogData.hybridGraph.description;
-              const qualityScore = (hasTitle ? 10 : 0) + (hasDescription ? 10 : 0);
-              
-              return {
-                pageid: story.id,
-                title: story.title,
-                extract: ogData.hybridGraph.description || story.text || `${story.score} points | ${story.descendants || 0} comments`,
-                url: story.url,
-                description: `Posted by ${story.by}`,
-                source: 'hackernews' as ContentSource,
-                thumbnail: {
-                  source: ogData.hybridGraph.image,
-                  // Estimate dimensions based on typical OG images
-                  width: 1200, 
-                  height: 630
-                },
-                qualityScore
-              };
+            // Strict image filtering - only use stories where we can extract a high-quality image
+            if (!metadata.image || !metadata.image.url) {
+              return null;
             }
-          } catch (ogError) {
-            console.log(`OpenGraph fetch failed for HN story ${id}:`, ogError);
-            // Continue without OG data
+            
+            return {
+              pageid: story.id,
+              title: story.title,
+              extract: story.text || metadata.description || `${story.score} points | ${story.descendants || 0} comments`,
+              thumbnail: {
+                source: metadata.image.url,
+                width: metadata.image.width || 800,
+                height: metadata.image.height || 600
+              },
+              description: `Posted by ${story.by}`,
+              source: 'hackernews' as ContentSource,
+              url: story.url
+            };
+          } catch (metaError) {
+            // If we can't fetch metadata, skip this story
+            console.error(`Error fetching metadata for HN story ${id}:`, metaError);
+            return null;
           }
-          
-          // If we couldn't get image data, return null to filter it out
-          return null;
         } catch (error) {
           console.error(`Error fetching HN story ${id}:`, error);
           return null;
         }
-      };
+      });
       
-      // Fetch story details in parallel - with a concurrency limit
-      const concurrencyLimit = 10;
-      const stories: (WikipediaArticle | null)[] = [];
+      // Wait for all stories with a reasonable overall timeout
+      const stories = await Promise.all(storyPromises);
       
-      // Process in batches to avoid overwhelming the API
-      for (let i = 0; i < storyIds.length; i += concurrencyLimit) {
-        const batch = storyIds.slice(i, i + concurrencyLimit);
-        const batchResults = await Promise.all(batch.map(fetchStoryWithImage));
-        stories.push(...batchResults);
-        
-        // If we have enough valid stories, stop fetching
-        const validStories = stories.filter(s => s !== null);
-        if (validStories.length >= count) {
-          break;
-        }
-      }
-      
-      // Filter nulls, sort by quality, and limit to requested count
-      const validStories = stories.filter(story => story !== null)
-                                 .sort((a, b) => ((b as any).qualityScore || 0) - ((a as any).qualityScore || 0));
-                                 
+      // Filter nulls and limit to requested count
+      const validStories = stories.filter(story => story !== null);
       console.log(`Successfully fetched ${validStories.length} valid HackerNews stories with images`);
       
       if (validStories.length === 0) {
         return createMockHackerNewsStories(count);
       }
       
-      // Remove qualityScore before returning
-      return validStories.slice(0, count).map(story => {
-        // @ts-ignore
-        const { qualityScore, ...storyWithoutScore } = story;
-        return storyWithoutScore;
-      });
+      return validStories.slice(0, count);
     } catch (error) {
       console.error('Error in fetchHackerNewsStories:', error);
       return createMockHackerNewsStories(count);
@@ -589,7 +516,12 @@ function createMockHackerNewsStories(count: number): WikipediaArticle[] {
       extract: "A detailed guide on building a mechanical keyboard from individual components, including PCB design, firmware, and case manufacturing.",
       url: "https://example.com/keyboard-guide",
       description: "Posted by keyboard_enthusiast",
-      source: 'hackernews' as ContentSource
+      source: 'hackernews' as ContentSource,
+      thumbnail: {
+        source: "https://images.unsplash.com/photo-1618384887929-16ec33fab9ef?auto=format&fit=crop&w=800&q=80",
+        width: 800,
+        height: 600
+      }
     },
     {
       pageid: 36983294,
@@ -597,7 +529,12 @@ function createMockHackerNewsStories(count: number): WikipediaArticle[] {
       extract: "An analysis of upcoming web standards and how they will impact browser technology in the next five years.",
       url: "https://example.com/future-browsers",
       description: "Posted by web_standards",
-      source: 'hackernews' as ContentSource
+      source: 'hackernews' as ContentSource,
+      thumbnail: {
+        source: "https://images.unsplash.com/photo-1544652478-6653e09f18a2?auto=format&fit=crop&w=800&q=80",
+        width: 800,
+        height: 600
+      }
     },
     {
       pageid: 36983295,
@@ -605,7 +542,12 @@ function createMockHackerNewsStories(count: number): WikipediaArticle[] {
       extract: "Walkthrough of building an image recognition system from scratch using modern ML techniques.",
       url: "https://example.com/ml-image-guide",
       description: "Posted by deeplearning_researcher",
-      source: 'hackernews' as ContentSource
+      source: 'hackernews' as ContentSource,
+      thumbnail: {
+        source: "https://images.unsplash.com/photo-1527474305487-b87b222841cc?auto=format&fit=crop&w=800&q=80",
+        width: 800,
+        height: 600
+      }
     },
     {
       pageid: 36983296,
@@ -613,7 +555,12 @@ function createMockHackerNewsStories(count: number): WikipediaArticle[] {
       extract: "Exploring the key principles behind successful and developer-friendly API design.",
       url: "https://example.com/api-design",
       description: "Posted by backend_developer",
-      source: 'hackernews' as ContentSource
+      source: 'hackernews' as ContentSource,
+      thumbnail: {
+        source: "https://images.unsplash.com/photo-1558494949-ef010cbdcc31?auto=format&fit=crop&w=800&q=80",
+        width: 800,
+        height: 600
+      }
     },
     {
       pageid: 36983297,
@@ -621,7 +568,12 @@ function createMockHackerNewsStories(count: number): WikipediaArticle[] {
       extract: "Best practices for configuring and optimizing Docker containers in high-scale production environments.",
       url: "https://example.com/docker-optimization",
       description: "Posted by devops_engineer",
-      source: 'hackernews' as ContentSource
+      source: 'hackernews' as ContentSource,
+      thumbnail: {
+        source: "https://images.unsplash.com/photo-1563986768494-4dee2763ff3f?auto=format&fit=crop&w=800&q=80",
+        width: 800,
+        height: 600
+      }
     }
   ];
   
@@ -721,12 +673,10 @@ export async function fetchRedditPosts(count: number = 5): Promise<WikipediaArti
     try {
       console.log(`Fetching Reddit posts, requested count: ${count}`);
       
-      // Fetch more posts to account for filtering
-      const fetchLimit = count * 3;
-      
-      // Fetch from the JSON API with multiple popular subreddits
+      // Fetch from multiple subreddits to increase chances of finding posts with images
+      // Request more posts than needed to ensure we can filter for ones with good images
       const response = await axios.get(
-        `https://www.reddit.com/r/todayilearned+science+worldnews+technology+history+space+dataisbeautiful.json?limit=${fetchLimit}`
+        `https://www.reddit.com/r/todayilearned+science+worldnews+technology+history+pics+EarthPorn+space.json?limit=${count * 5}`
       );
       
       if (!response.data?.data?.children) {
@@ -734,65 +684,54 @@ export async function fetchRedditPosts(count: number = 5): Promise<WikipediaArti
         return [];
       }
       
-      // Filter posts for image quality - require high-quality images
+      // Filter posts to only include those with proper images - strict filtering
       const posts = response.data.data.children
-        .filter((post: any) => {
-          // Basic post validation
-          if (!post.data || !post.data.title || post.data.over_18) {
-            return false;
-          }
-          
-          // Must have image preview
-          const hasPreview = post.data.preview && 
-                           post.data.preview.images && 
-                           post.data.preview.images[0] &&
-                           post.data.preview.images[0].source;
-                           
-          // Check image dimensions - filter for high-quality
-          const hasQualityImage = hasPreview && 
-                                post.data.preview.images[0].source.width >= 500 &&  // Minimum width
-                                post.data.preview.images[0].source.height >= 300;   // Minimum height
-                                
-          // Only accept posts with quality images
-          return hasQualityImage;
-        });
-      
-      console.log(`Found ${posts.length} Reddit posts with high-quality images`);
-      
-      // Take just what we need after filtering
-      const selectedPosts = posts.slice(0, count);
+        .filter((post: any) => 
+          // Ensure post has title and isn't NSFW
+          post.data && 
+          post.data.title && 
+          !post.data.over_18 &&
+          // Strict image requirement - must have preview images with source
+          post.data.preview && 
+          post.data.preview.images && 
+          post.data.preview.images[0] &&
+          post.data.preview.images[0].source &&
+          post.data.preview.images[0].source.url
+        )
+        .slice(0, count);
       
       // Map to our article format
-      const articles = selectedPosts.map((post: any) => {
-        const data = post.data;
-        
-        // Extract the highest quality image from preview
-        const image = data.preview.images[0].source;
-        
-        // Create standardized thumbnail object
-        const thumbnail = {
-          source: image.url.replace(/&amp;/g, '&'),
-          width: image.width,
-          height: image.height
-        };
-        
-        // Extract text content
-        const extract = data.selftext && data.selftext.length > 0
-          ? data.selftext.substring(0, 500) + (data.selftext.length > 500 ? '...' : '')
-          : `Posted by u/${data.author} in r/${data.subreddit}`;
-        
-        return {
-          pageid: parseInt(data.id, 36),
-          title: data.title,
-          extract,
-          thumbnail: getHighResImage(thumbnail),
-          description: `Posted by u/${data.author} in r/${data.subreddit}`,
-          url: `https://www.reddit.com${data.permalink}`,
-          source: 'reddit' as ContentSource
-        };
-      });
+      const articles = posts
+        .map((post: any) => {
+          const data = post.data;
+          
+          // Extract image - always use the highest resolution available
+          const image = data.preview.images[0];
+          const source = image.source;
+          
+          const thumbnail = {
+            source: source.url.replace(/&amp;/g, '&'),
+            width: source.width,
+            height: source.height
+          };
+          
+          // Extract text content
+          const extract = data.selftext && data.selftext.length > 0
+            ? data.selftext.substring(0, 500) + (data.selftext.length > 500 ? '...' : '')
+            : `Posted by u/${data.author} in r/${data.subreddit}`;
+          
+          return {
+            pageid: parseInt(data.id, 36),
+            title: data.title,
+            extract,
+            thumbnail: getHighResImage(thumbnail),
+            description: `Posted by u/${data.author} in r/${data.subreddit}`,
+            url: `https://www.reddit.com${data.permalink}`,
+            source: 'reddit' as ContentSource
+          };
+        });
       
-      console.log(`Converted ${articles.length} Reddit posts to articles`);
+      console.log(`Converted ${articles.length} Reddit posts with images to articles`);
       return articles;
     } catch (error) {
       console.error('Error fetching Reddit posts:', error);
@@ -1044,247 +983,6 @@ export const fetchMultiSourceArticles = async (
   return shuffleArray(optimizedArticles);
 };
 
-// Media API Integration - Wikimedia Commons and NASA
-
-interface WikimediaCommonsResponse {
-  parse: {
-    images: string[];
-    title: string;
-    text: {
-      '*': string;
-    };
-  };
-}
-
-export interface MediaOfTheDay {
-  title: string;
-  description: string;
-  url: string;
-  thumbUrl: string;
-  isVideo: boolean;
-  license?: string;
-  author?: string;
-  dateCreated?: string;
-}
-
-export interface NasaApodResponse {
-  title: string;
-  explanation: string;
-  url: string;
-  hdurl?: string;
-  media_type: 'image' | 'video';
-  date: string;
-  copyright?: string;
-}
-
-// Fetch Media of the Day from Wikimedia Commons
-export const fetchMediaOfTheDay = async (): Promise<MediaOfTheDay | null> => {
-  try {
-    // Get current date in format YYYY/MM/DD
-    const now = new Date();
-    const month = String(now.getMonth() + 1).padStart(2, '0');
-    const day = String(now.getDate()).padStart(2, '0');
-    
-    // Attempt to fetch Picture of the Day first
-    const response = await axios.get<WikimediaCommonsResponse>(
-      'https://commons.wikimedia.org/w/api.php',
-      {
-        params: {
-          action: 'parse',
-          page: `Template:Potd/${now.getFullYear()}-${month}-${day}`,
-          format: 'json',
-          prop: 'text|images',
-          origin: '*'
-        }
-      }
-    );
-    
-    if (response.data.parse) {
-      // Extract image information from the response
-      const html = response.data.parse.text['*'];
-      const parser = new DOMParser();
-      const doc = parser.parseFromString(html, 'text/html');
-      
-      // Extract the main image
-      const imgElement = doc.querySelector('.commons-file-information-table img') as HTMLImageElement;
-      const descElement = doc.querySelector('.description');
-      
-      if (imgElement && imgElement.src) {
-        const imgSrc = imgElement.src.startsWith('//') 
-          ? `https:${imgElement.src}` 
-          : imgElement.src;
-          
-        // Get high-res version by modifying thumbnail URL
-        const fullResUrl = imgSrc.replace(/\/thumb\//, '/').split('/').slice(0, -1).join('/');
-        
-        return {
-          title: response.data.parse.title,
-          description: descElement ? descElement.textContent || '' : '',
-          url: fullResUrl,
-          thumbUrl: imgSrc,
-          isVideo: false
-        };
-      }
-    }
-    
-    // If Picture of the Day fails, try Media of the Day as fallback
-    const mediaResponse = await axios.get<WikimediaCommonsResponse>(
-      'https://commons.wikimedia.org/w/api.php',
-      {
-        params: {
-          action: 'parse',
-          page: `Template:Motd/${now.getFullYear()}-${month}-${day}`,
-          format: 'json',
-          prop: 'text|images',
-          origin: '*'
-        }
-      }
-    );
-    
-    if (mediaResponse.data.parse) {
-      const html = mediaResponse.data.parse.text['*'];
-      const parser = new DOMParser();
-      const doc = parser.parseFromString(html, 'text/html');
-      
-      // Extract video or image
-      const mediaElement = doc.querySelector('video') || doc.querySelector('img');
-      const descElement = doc.querySelector('.description');
-      
-      if (mediaElement) {
-        const isVideo = mediaElement.tagName.toLowerCase() === 'video';
-        const mediaSrc = isVideo 
-          ? (mediaElement as HTMLVideoElement).poster || ''
-          : (mediaElement as HTMLImageElement).src;
-          
-        const finalSrc = mediaSrc.startsWith('//') 
-          ? `https:${mediaSrc}` 
-          : mediaSrc;
-          
-        return {
-          title: mediaResponse.data.parse.title,
-          description: descElement ? descElement.textContent || '' : '',
-          url: finalSrc,
-          thumbUrl: finalSrc,
-          isVideo
-        };
-      }
-    }
-    
-    return null;
-  } catch (error) {
-    console.error('Error fetching Media of the Day:', error);
-    return null;
-  }
-};
-
-// Fetch NASA Astronomy Picture of the Day
-export const fetchNasaApod = async (): Promise<NasaApodResponse | null> => {
-  try {
-    // NASA's APOD API is free to use with limited requests
-    // For production, you should get an API key: https://api.nasa.gov/
-    const response = await axios.get<NasaApodResponse>(
-      'https://api.nasa.gov/planetary/apod',
-      {
-        params: {
-          api_key: 'DEMO_KEY' // Limited to 30 requests per hour
-        }
-      }
-    );
-    
-    return response.data;
-  } catch (error) {
-    console.error('Error fetching NASA APOD:', error);
-    return null;
-  }
-};
-
-// Fetch relevant images for a topic from Wikimedia Commons
-export const fetchRelevantImages = async (topic: string, limit: number = 5): Promise<MediaOfTheDay[]> => {
-  try {
-    // Search Wikimedia Commons for images related to the topic
-    const searchResponse = await axios.get(
-      'https://commons.wikimedia.org/w/api.php',
-      {
-        params: {
-          action: 'query',
-          list: 'search',
-          srsearch: `${topic} filetype:bitmap`,
-          srnamespace: 6, // File namespace
-          srlimit: limit,
-          format: 'json',
-          origin: '*'
-        }
-      }
-    );
-    
-    if (!searchResponse.data.query?.search?.length) {
-      return [];
-    }
-    
-    // Get file details for each search result
-    const filePromises = searchResponse.data.query.search.map(async (result: any) => {
-      const title = result.title;
-      
-      // Get image info
-      const imageResponse = await axios.get(
-        'https://commons.wikimedia.org/w/api.php',
-        {
-          params: {
-            action: 'query',
-            titles: title,
-            prop: 'imageinfo',
-            iiprop: 'url|extmetadata',
-            iiurlwidth: 2400, // Increased from 1600 to 2400 for even higher resolution
-            format: 'json',
-            origin: '*'
-          }
-        }
-      );
-      
-      const pages = imageResponse.data.query?.pages || {};
-      const pageId = Object.keys(pages)[0];
-      
-      if (pageId && pages[pageId].imageinfo && pages[pageId].imageinfo.length) {
-        const imageInfo = pages[pageId].imageinfo[0];
-        const metadata = imageInfo.extmetadata || {};
-        
-        return {
-          title: title.replace('File:', ''),
-          description: metadata.ImageDescription?.value || '',
-          url: imageInfo.url, // Original full resolution URL
-          thumbUrl: imageInfo.thumburl || imageInfo.url,
-          isVideo: false,
-          license: metadata.License?.value || '',
-          author: metadata.Artist?.value || '',
-          dateCreated: metadata.DateTimeOriginal?.value || ''
-        };
-      }
-      
-      return null;
-    });
-    
-    const results = await Promise.all(filePromises);
-    return results.filter(result => result !== null) as MediaOfTheDay[];
-  } catch (error) {
-    console.error('Error fetching relevant images:', error);
-    return [];
-  }
-};
-
-// Check if a topic is related to astronomy
-export const isAstronomyTopic = (topic: string): boolean => {
-  const astronomyKeywords = [
-    'astronomy', 'space', 'planet', 'star', 'galaxy', 'cosmos', 'universe', 
-    'nebula', 'solar system', 'moon', 'mars', 'jupiter', 'saturn', 'venus', 
-    'telescope', 'astronaut', 'nasa', 'esa', 'spacex', 'rocket', 'meteor', 
-    'asteroid', 'comet', 'black hole', 'supernova', 'exoplanet', 'constellation',
-    'observatory', 'cosmology', 'astrophysics', 'orbit', 'celestial'
-  ];
-  
-  const lowerTopic = topic.toLowerCase();
-  return astronomyKeywords.some(keyword => lowerTopic.includes(keyword));
-};
-
 // PodcastIndex.org API Integration
 export interface PodcastEpisode {
   id: number;
@@ -1314,6 +1012,17 @@ const formatDuration = (seconds: number): string => {
   }
   
   return `${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
+};
+
+// Format milliseconds to mm:ss format
+const formatMilliseconds = (ms: number): string => {
+  if (!ms) return '00:00';
+  
+  const totalSeconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  
+  return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
 };
 
 // Search for podcast episodes by topic
@@ -1402,17 +1111,6 @@ export const searchPodcastEpisodes = async (term: string, limit: number = 5): Pr
     console.error('Error searching podcast episodes:', error);
     return [];
   }
-};
-
-// Format milliseconds to mm:ss format
-const formatMilliseconds = (ms: number): string => {
-  if (!ms) return '00:00';
-  
-  const totalSeconds = Math.floor(ms / 1000);
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  
-  return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
 };
 
 // Search for trending podcasts

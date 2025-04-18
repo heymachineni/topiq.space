@@ -52,28 +52,49 @@ const sourceConfig = {
 };
 
 // Get source badge for articles
-const getSourceBadge = (article: WikipediaArticle | null) => {
-  if (!article) return null;
-  
-  switch (article.source) {
-    case 'wikipedia':
-      return { label: 'Wikipedia', color: 'bg-blue-500 text-white' };
-    case 'wikievents':
-      return { label: 'Wiki Events', color: 'bg-green-500 text-white' };
-    case 'onthisday':
-      return { label: 'On This Day', color: 'bg-purple-500 text-white' };
-    case 'hackernews':
-      return { label: 'Hacker News', color: 'bg-orange-500 text-white' };
-    case 'reddit':
-      return { label: 'Reddit', color: 'bg-red-500 text-white' };
-    case 'oksurf':
-      return { label: 'OkSurf', color: 'bg-indigo-500 text-white' };
-    case 'rss':
-      return { label: 'RSS', color: 'bg-yellow-500 text-black' };
-    default:
-      // Removed "Other" badge
-      return null;
+const getSourceBadge = (article: WikipediaArticle) => {
+  // Default to Wikipedia if no source is specified
+  if (!article.source || article.source === 'wikipedia') {
+    return {
+      label: 'Wikipedia',
+      color: 'from-blue-500 to-blue-700'
+    };
+  } else if (article.source === 'hackernews') {
+    return {
+      label: 'Hacker News',
+      color: 'from-orange-500 to-orange-700'
+    };
+  } else if (article.source === 'onthisday') {
+    // Create a dynamic date for On This Day
+    const today = new Date();
+    const formattedDate = today.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    
+    return {
+      label: `on ${formattedDate}`,
+      color: 'from-green-500 to-teal-600'
+    };
+  } else if (article.source === 'oksurf') {
+    return {
+      label: 'Trending',
+      color: 'from-purple-500 to-pink-600'
+    };
+  } else if (article.source === 'reddit') {
+    return {
+      label: 'Reddit',
+      color: 'from-red-500 to-red-700'
+    };
+  } else if (article.source === 'wikievents') {
+    return {
+      label: 'Current Events',
+      color: 'from-indigo-500 to-indigo-700'
+    };
   }
+  
+  // Fallback to Wikipedia badge for any unknown source
+  return {
+    label: 'Wikipedia',
+    color: 'from-blue-500 to-blue-700'
+  };
 };
 
 // Format date like "Apr 13"
@@ -727,25 +748,6 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
     setShowLikesModal(true);
   };
   
-  // Preload images for better performance
-  useEffect(() => {
-    // Skip if no articles
-    if (!articles || articles.length === 0) return;
-    
-    // Preload the next few images
-    const preloadCount = 3;
-    const startIndex = currentIndex;
-    const endIndex = Math.min(startIndex + preloadCount, articles.length);
-    
-    for (let i = startIndex; i < endIndex; i++) {
-      const article = articles[i];
-      if (article && article.thumbnail?.source) {
-        const img = new Image();
-        img.src = article.thumbnail.source;
-      }
-    }
-  }, [currentIndex, articles]);
-  
   // Fetch related podcasts when current article changes
   useEffect(() => {
     if (!currentArticle) return;
@@ -810,6 +812,23 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
       }
     }
   }, [currentIndex, articles, currentArticle]);
+  
+  // Handle double tap to like
+  const handleTap = () => {
+    const now = Date.now();
+    const DOUBLE_TAP_DELAY = 300; // ms
+    
+    if (lastTapTime && (now - lastTapTime) < DOUBLE_TAP_DELAY) {
+      // Double tap detected
+      if (currentArticle) {
+        handleLike();
+        setShowLikeAnimation(true);
+        setTimeout(() => setShowLikeAnimation(false), 1000);
+      }
+    }
+    
+    setLastTapTime(now);
+  };
   
   // Update loading state to match the podcast loading style
   if (isLoading && articles.length === 0) {
@@ -992,6 +1011,7 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
             animate="animate"
             exit="exit"
             custom={swipeDirection}
+            onClick={handleTap}
           >
             {/* Background image - simplified to show just one image */}
             <motion.div 
@@ -1045,7 +1065,7 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
               <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-black/30 opacity-70"></div>
             </motion.div>
 
-            {/* Content container - update to include image descriptions when relevant */}
+            {/* Content container */}
             <motion.div 
               className="absolute bottom-0 left-0 right-0 px-6 py-7 z-20 bg-black/30 backdrop-blur-md"
               style={{ paddingBottom }}
@@ -1060,10 +1080,10 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
                 }
               }}
             >
-              {/* Source badge - add back */}
+              {/* Source badge */}
               {currentArticle.source && (
                 <motion.div
-                  className={`absolute top-0 left-6 transform -translate-y-full mt-[-12px] px-3 py-1 rounded-full bg-gradient-to-r ${getSourceBadge(currentArticle)?.color || 'from-gray-500 to-gray-700'} text-white text-xs font-medium shadow-lg`}
+                  className={`absolute top-0 left-6 transform -translate-y-full mt-[-12px] px-3 py-1 rounded-full bg-gradient-to-r ${getSourceBadge(currentArticle).color} text-white text-xs font-medium shadow-lg`}
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ 
                     opacity: 1, 
@@ -1072,7 +1092,7 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
                   }}
                   key={`badge-${currentArticle.pageid}`}
                 >
-                  {getSourceBadge(currentArticle)?.label || 'Source'}
+                  {getSourceBadge(currentArticle).label}
                 </motion.div>
               )}
               
@@ -1091,19 +1111,28 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
                     </p>
                   )}
                   
-                  {/* Extract - don't change description based on image */}
-                  {currentArticle.extract_html ? (
-                    <div className="text-white/90 font-space line-clamp-[5] md:line-clamp-[4] mb-4 min-h-[4.5em] md:min-h-[4em]">
-                      {parseHtmlContent(currentArticle.extract_html)}
-                    </div>
-                  ) : (
-                    <p className="text-white/90 font-space line-clamp-[5] md:line-clamp-[4] mb-4 min-h-[4.5em] md:min-h-[4em]">
-                      {currentArticle.source === 'hackernews' 
-                        ? cleanHackerNewsExtract(currentArticle)
-                        : currentArticle.source === 'oksurf' && currentArticle.extract
-                          ? currentArticle.extract.replace(/Trending news from OK\.Surf/g, 'Trending search from Google')
-                          : currentArticle.extract || "No description available"}
-                    </p>
+                  {/* Extract */}
+                  {currentArticle.extract && (
+                    <div 
+                      className="article-extract"
+                      dangerouslySetInnerHTML={{ __html: currentArticle.extract }}
+                    />
+                  )}
+                  
+                  {/* View Podcasts button */}
+                  {relatedPodcasts.length > 0 && (
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowPodcastModal(true);
+                      }}
+                      className="inline-flex items-center text-white/80 font-space hover:text-white transition mt-3 mr-4"
+                    >
+                      <span className="mr-2">Listen ({relatedPodcasts.length})</span>
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M18 3a1 1 0 00-1.447-.894L8.763 6H5a3 3 0 000 6h.28l1.771 5.316A1 1 0 008 18h1a1 1 0 001-1v-4.382l6.553 3.276A1 1 0 0018 15V3z" clipRule="evenodd" />
+                      </svg>
+                    </button>
                   )}
                   
                   {/* Read more button */}
@@ -1119,8 +1148,8 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
                     </svg>
                   </button>
                 </div>
-                
-                {/* Add back the like button */}
+
+                {/* Like button */}
                 <div 
                   className="absolute top-0 right-0 z-30"
                   key={`like-container-${currentArticle.pageid}`}

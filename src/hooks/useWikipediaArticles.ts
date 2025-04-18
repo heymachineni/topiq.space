@@ -20,90 +20,19 @@ const REFRESH_INTERVAL = 2 * 60 * 60 * 1000; // Refresh every 2 hours
 const BATCH_SIZE = 20; // Number of articles to fetch in each batch
 const MAX_CACHED_ARTICLES = 100; // Maximum number of articles to keep in cache
 
-// Configuration for source distribution
-const SOURCES_CONFIG: Record<ContentSource, { weight: number; fetchFunction: any; batchSize: number }> = {
-  wikipedia: {
-    weight: 35,
-    fetchFunction: fetchRandomArticles,
-    batchSize: 5,
-  },
-  wikievents: {
-    weight: 10,
-    fetchFunction: fetchOnThisDayEvents,
-    batchSize: 3,
-  },
-  onthisday: {
-    weight: 5,
-    fetchFunction: fetchOnThisDayEvents,
-    batchSize: 3,
-  },
-  hackernews: {
-    weight: 10,
-    fetchFunction: fetchHackerNewsStories,
-    batchSize: 3,
-  },
-  oksurf: {
-    weight: 20,
-    fetchFunction: fetchOkSurfNews,
-    batchSize: 5,
-  },
-  reddit: {
-    weight: 20,
-    fetchFunction: fetchRandomArticles,
-    batchSize: 5,
-  },
-  rss: {
-    weight: 0, // Initially set to 0 to maintain compatibility
-    fetchFunction: fetchRandomArticles, // Fallback to Wikipedia as placeholder
-    batchSize: 3,
-  },
+// Source distribution for a balanced content mix
+const SOURCES_CONFIG: Record<ContentSource, { weight: number }> = {
+  'wikipedia': { weight: 40 },    // 40% Wikipedia
+  'wikievents': { weight: 5 },    // 5% Wikipedia Current Events
+  'reddit': { weight: 25 },       // 25% Reddit
+  'onthisday': { weight: 5 },     // 5% On This Day
+  'oksurf': { weight: 15 },       // 15% OK Surf
+  'hackernews': { weight: 10 }    // 10% Hacker News
 };
 
 // Helper to get a random integer in a range
 const getRandomInt = (min: number, max: number) => {
   return Math.floor(Math.random() * (max - min + 1)) + min;
-};
-
-// Helper function to calculate source distribution based on weights
-const calculateSourceDistribution = (totalCount: number): Record<ContentSource, number> => {
-  const distribution: Record<ContentSource, number> = {
-    wikipedia: 0,
-    wikievents: 0,
-    onthisday: 0,
-    hackernews: 0,
-    oksurf: 0,
-    reddit: 0,
-    rss: 0,
-  };
-
-  const totalWeight = Object.values(SOURCES_CONFIG).reduce((sum, config) => sum + config.weight, 0);
-  
-  // Distribute the count across sources based on weights
-  for (const source of Object.keys(SOURCES_CONFIG) as ContentSource[]) {
-    const weight = SOURCES_CONFIG[source].weight;
-    distribution[source] = Math.round((weight / totalWeight) * totalCount);
-  }
-
-  // Adjust for rounding errors
-  const distributedCount = Object.values(distribution).reduce((sum, count) => sum + count, 0);
-  const diff = totalCount - distributedCount;
-  
-  if (diff !== 0) {
-    // Add or subtract from Wikipedia to account for rounding differences
-    distribution.wikipedia = Math.max(0, distribution.wikipedia + diff);
-  }
-
-  return distribution;
-};
-
-// Helper function to shuffle array
-const shuffleArray = <T>(array: T[]): T[] => {
-  const shuffled = [...array];
-  for (let i = shuffled.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-  }
-  return shuffled;
 };
 
 export const useWikipediaArticles = (initialCount: number = 10) => {
@@ -115,15 +44,14 @@ export const useWikipediaArticles = (initialCount: number = 10) => {
   const lastRefreshTime = useRef<number>(0);
   const viewedArticleIds = useRef<Set<number>>(new Set());
   
-  // Default distribution of articles by source
+  // Keep track of distribution across sources
   const [sourceDistribution, setSourceDistribution] = useState<Record<ContentSource, number>>({
-    wikipedia: Math.floor(initialCount * 0.35),
-    wikievents: Math.floor(initialCount * 0.1),
-    reddit: Math.floor(initialCount * 0.2),
-    onthisday: Math.floor(initialCount * 0.05),
-    oksurf: Math.floor(initialCount * 0.2),
-    hackernews: Math.floor(initialCount * 0.1),
-    rss: 0, // Add the missing rss property
+    wikipedia: 0,
+    wikievents: 0,
+    reddit: 0,
+    onthisday: 0,
+    oksurf: 0,
+    hackernews: 0
   });
   
   // Update source counts in distribution
@@ -134,8 +62,7 @@ export const useWikipediaArticles = (initialCount: number = 10) => {
       reddit: 0,
       onthisday: 0,
       oksurf: 0,
-      hackernews: 0,
-      rss: 0
+      hackernews: 0
     };
     
     articleList.forEach(article => {
@@ -146,53 +73,74 @@ export const useWikipediaArticles = (initialCount: number = 10) => {
     setSourceDistribution(counts);
   }, []);
 
-  // Function to fetch a batch of fresh articles
-  const fetchFreshArticles = async (batchSize: number = 10): Promise<WikipediaArticle[]> => {
-    console.log('Fetching fresh articles');
-    setLoading(true);
-    setError('');
-
+  // Fetch fresh articles from all sources
+  const fetchFreshArticles = useCallback(async (count: number) => {
     try {
-      // Determine the number of articles to fetch from each source based on weights
-      const sourceDistribution = calculateSourceDistribution(batchSize);
-      console.log('Source distribution:', sourceDistribution);
-
-      // Fetch articles from all sources in parallel
-      const fetchPromises = Object.entries(sourceDistribution).map(([source, count]) => {
-        if (count <= 0) return Promise.resolve([]);
-        const { fetchFunction, batchSize: sourceBatchSize } = SOURCES_CONFIG[source as ContentSource];
-        // Fetch more than needed to allow for filtering
-        const extraFactor = source === 'onthisday' ? 1 : 2; // Don't overfetch onthisday since they have limited content
-        return fetchFunction(Math.ceil(count * extraFactor))
-          .then((articles: WikipediaArticle[]) => {
-            // Apply consistent image quality filtering for all sources except onthisday
-            if (source !== 'onthisday') {
-              return articles.filter(article => 
-                article.thumbnail && 
-                article.thumbnail.width && 
-                article.thumbnail.width >= 800
-              ).slice(0, count);
-            }
-            return articles.slice(0, count);
-          });
+      setError(null);
+      
+      // Get previously viewed article IDs - but don't filter them out completely
+      const viewedArticles = getViewedArticles();
+      // Convert to array of numbers
+      const viewedIdNumbers = viewedArticles.map(article => article.pageid);
+      viewedArticleIds.current = new Set(viewedIdNumbers);
+      
+      // Calculate how many articles to request from each source based on weights
+      const sourceRequests: Partial<Record<ContentSource, number>> = {};
+      const totalWeight = Object.values(SOURCES_CONFIG).reduce((sum, config) => sum + config.weight, 0);
+      
+      let remainingCount = count;
+      
+      // Distribute the count across sources based on weights
+      for (const source of Object.keys(SOURCES_CONFIG) as ContentSource[]) {
+        const weight = SOURCES_CONFIG[source].weight;
+        const sourceCount = Math.round((weight / totalWeight) * count);
+        sourceRequests[source] = sourceCount;
+        remainingCount -= sourceCount;
+      }
+      
+      // Adjust for rounding errors
+      if (remainingCount > 0) {
+        sourceRequests.wikipedia = (sourceRequests.wikipedia || 0) + remainingCount;
+      } else if (remainingCount < 0) {
+        sourceRequests.wikipedia = Math.max(1, (sourceRequests.wikipedia || 0) + remainingCount);
+      }
+      
+      // Fetch articles from multiple sources - pass the viewed IDs but don't filter
+      const freshArticles = await fetchMultiSourceArticles(sourceRequests);
+      
+      // Filter out articles without titles
+      const validArticles = freshArticles.filter(article => 
+        article.title && article.title.trim() !== ''
+      );
+      
+      // Sort articles - new ones first, then already viewed ones
+      const sortedArticles = validArticles.sort((a, b) => {
+        const aViewed = a.pageid ? viewedArticleIds.current.has(a.pageid) : false;
+        const bViewed = b.pageid ? viewedArticleIds.current.has(b.pageid) : false;
+        
+        if (aViewed && !bViewed) return 1; // a is viewed, b is not, so b comes first
+        if (!aViewed && bViewed) return -1; // a is not viewed, b is viewed, so a comes first
+        return 0; // no change in order
       });
-
-      const articlesBySource = await Promise.all(fetchPromises);
-      const allArticles = articlesBySource.flat();
       
-      // Shuffle the articles to mix sources
-      const shuffledArticles = shuffleArray(allArticles);
+      // Mark these articles as viewed
+      sortedArticles.forEach(article => {
+        if (article.pageid) {
+          viewedArticleIds.current.add(article.pageid);
+          markArticleAsViewed(article);
+        }
+      });
       
-      console.log(`Fetched ${shuffledArticles.length} fresh articles`);
-      return shuffledArticles;
+      // Update the last refresh time
+      lastRefreshTime.current = Date.now();
+      
+      return sortedArticles;
     } catch (err) {
       console.error('Error fetching fresh articles:', err);
-      setError('Failed to fetch articles. Please try again.');
+      setError('Failed to fetch articles. Please try again later.');
       return [];
-    } finally {
-      setLoading(false);
     }
-  };
+  }, []);
 
   // Save articles to cache
   const saveArticlesToCache = useCallback((articleList: WikipediaArticle[]) => {
@@ -260,20 +208,8 @@ export const useWikipediaArticles = (initialCount: number = 10) => {
     initializeArticles();
   }, [initialCount, fetchFreshArticles, loadArticlesFromCache, saveArticlesToCache]);
 
-  // Function to refresh the articles list
-  const refreshArticles = async () => {
-    const initialSourceDistribution = {
-      wikipedia: Math.floor(initialCount * 0.35),
-      wikievents: Math.floor(initialCount * 0.1),
-      reddit: Math.floor(initialCount * 0.2),
-      onthisday: Math.floor(initialCount * 0.05),
-      oksurf: Math.floor(initialCount * 0.2),
-      hackernews: Math.floor(initialCount * 0.1),
-      rss: 0, // Add the missing rss property
-    };
-
-    setSourceDistribution(initialSourceDistribution);
-
+  // Refresh articles with new content
+  const refreshArticles = useCallback(async () => {
     setLoading(true);
     
     try {
@@ -303,7 +239,7 @@ export const useWikipediaArticles = (initialCount: number = 10) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [fetchFreshArticles, saveArticlesToCache]);
 
   // Load more articles in the background
   const loadMoreArticlesInBackground = useCallback(async (count: number = BATCH_SIZE) => {
