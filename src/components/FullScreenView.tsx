@@ -52,47 +52,28 @@ const sourceConfig = {
 };
 
 // Get source badge for articles
-const getSourceBadge = (article: WikipediaArticle) => {
-  if (article.source === 'wikipedia' || !article.source) {
-    return {
-      label: 'Wikipedia',
-      color: 'from-blue-500 to-blue-700'
-    };
-  } else if (article.source === 'hackernews') {
-    return {
-      label: 'Hacker News',
-      color: 'from-orange-500 to-orange-700'
-    };
-  } else if (article.source === 'onthisday') {
-    // Create a dynamic date for On This Day
-    const today = new Date();
-    const formattedDate = today.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    
-    return {
-      label: `on ${formattedDate}`,
-      color: 'from-green-500 to-teal-600'
-    };
-  } else if (article.source === 'oksurf') {
-    return {
-      label: 'Trending',
-      color: 'from-purple-500 to-pink-600'
-    };
-  } else if (article.source === 'reddit') {
-    return {
-      label: 'Reddit',
-      color: 'from-red-500 to-red-700'
-    };
-  } else if (article.source === 'wikievents') {
-    return {
-      label: 'Wikipedia',
-      color: 'from-indigo-500 to-indigo-700'
-    };
-  }
+const getSourceBadge = (article: WikipediaArticle | null) => {
+  if (!article) return null;
   
-  return {
-    label: 'Other',
-    color: 'from-gray-500 to-gray-700'
-  };
+  switch (article.source) {
+    case 'wikipedia':
+      return { label: 'Wikipedia', color: 'bg-blue-500 text-white' };
+    case 'wikievents':
+      return { label: 'Wiki Events', color: 'bg-green-500 text-white' };
+    case 'onthisday':
+      return { label: 'On This Day', color: 'bg-purple-500 text-white' };
+    case 'hackernews':
+      return { label: 'Hacker News', color: 'bg-orange-500 text-white' };
+    case 'reddit':
+      return { label: 'Reddit', color: 'bg-red-500 text-white' };
+    case 'oksurf':
+      return { label: 'OkSurf', color: 'bg-indigo-500 text-white' };
+    case 'rss':
+      return { label: 'RSS', color: 'bg-yellow-500 text-black' };
+    default:
+      // Removed "Other" badge
+      return null;
+  }
 };
 
 // Format date like "Apr 13"
@@ -765,23 +746,6 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
     }
   }, [currentIndex, articles]);
   
-  // Handle double tap to like
-  const handleTap = () => {
-    const now = Date.now();
-    const DOUBLE_TAP_DELAY = 300; // ms
-    
-    if (lastTapTime && (now - lastTapTime) < DOUBLE_TAP_DELAY) {
-      // Double tap detected
-      if (currentArticle) {
-        handleLike();
-        setShowLikeAnimation(true);
-        setTimeout(() => setShowLikeAnimation(false), 1000);
-      }
-    }
-    
-    setLastTapTime(now);
-  };
-  
   // Fetch related podcasts when current article changes
   useEffect(() => {
     if (!currentArticle) return;
@@ -1028,7 +992,6 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
             animate="animate"
             exit="exit"
             custom={swipeDirection}
-            onClick={handleTap}
           >
             {/* Background image - simplified to show just one image */}
             <motion.div 
@@ -1100,7 +1063,7 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
               {/* Source badge - add back */}
               {currentArticle.source && (
                 <motion.div
-                  className={`absolute top-0 left-6 transform -translate-y-full mt-[-12px] px-3 py-1 rounded-full bg-gradient-to-r ${getSourceBadge(currentArticle).color} text-white text-xs font-medium shadow-lg`}
+                  className={`absolute top-0 left-6 transform -translate-y-full mt-[-12px] px-3 py-1 rounded-full bg-gradient-to-r ${getSourceBadge(currentArticle)?.color || 'from-gray-500 to-gray-700'} text-white text-xs font-medium shadow-lg`}
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ 
                     opacity: 1, 
@@ -1109,7 +1072,7 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
                   }}
                   key={`badge-${currentArticle.pageid}`}
                 >
-                  {getSourceBadge(currentArticle).label}
+                  {getSourceBadge(currentArticle)?.label || 'Source'}
                 </motion.div>
               )}
               
@@ -1137,9 +1100,9 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
                     <p className="text-white/90 font-space line-clamp-[5] md:line-clamp-[4] mb-4 min-h-[4.5em] md:min-h-[4em]">
                       {currentArticle.source === 'hackernews' 
                         ? cleanHackerNewsExtract(currentArticle)
-                        : currentArticle.source === 'oksurf'
+                        : currentArticle.source === 'oksurf' && currentArticle.extract
                           ? currentArticle.extract.replace(/Trending news from OK\.Surf/g, 'Trending search from Google')
-                          : currentArticle.extract}
+                          : currentArticle.extract || "No description available"}
                     </p>
                   )}
                   
