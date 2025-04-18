@@ -22,8 +22,8 @@
   },
   "scripts": {
     "dev": "next dev",
-    "build": "next build && next export",
-    "build:production": "NODE_ENV=production next build && next export",
+    "build": "next build",
+    "build:production": "NODE_ENV=production next build",
     "fetch-podcasts": "node scripts/fetch-podcasts.js",
     "fetch-wiki": "node scripts/fetch-wikipedia.js",
     "start": "next start",
@@ -56,6 +56,7 @@
     "@types/react": "^18.2.52",
     "@types/react-dom": "^18.2.18",
     "autoprefixer": "^10.4.17",
+    "eslint-config-next": "^13.4.0",
     "postcss": "^8.4.35",
     "tailwind-scrollbar": "^3.0.5",
     "tailwindcss": "^3.4.1"

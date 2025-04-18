@@ -1,0 +1,8 @@
+{
+  "extends": ["next/core-web-vitals", "react-app"],
+  "rules": {
+    // Disable some rules that might cause issues during transition to Next.js
+    "react/react-in-jsx-scope": "off",
+    "import/no-anonymous-default-export": "off"
+  }
+} 
