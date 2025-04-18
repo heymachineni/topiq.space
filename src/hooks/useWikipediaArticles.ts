@@ -25,10 +25,10 @@ const sourceWeights = {
   'wikipedia': { weight: 30 },   // 30% Wikipedia
   'rss': { weight: 20 },         // 20% RSS Feeds
   'hackernews': { weight: 15 },  // 15% Hacker News
-  'onthisday': { weight: 15 },   // 15% On This Day
+  'onthisday': { weight: 5 },   // 15% On This Day
   'oksurf': { weight: 10 },      // 10% OK.Surf
-  'reddit': { weight: 5 },       // 5% Reddit
-  'wikievents': { weight: 5 }    // 5% Wikipedia events
+  'reddit': { weight: 10 },       // 5% Reddit
+  'wikievents': { weight: 10 }    // 5% Wikipedia events
 };
 
 // Helper to get a random integer in a range

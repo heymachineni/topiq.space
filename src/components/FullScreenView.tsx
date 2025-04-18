@@ -66,12 +66,6 @@ const sourceConfig: Record<ContentSource, { label: string, color: string, gradie
     color: 'from-indigo-500 to-indigo-700',
     gradientFrom: '#6366f1',
     gradientTo: '#4338ca'
-  },
-  'movie': {
-    label: 'Movie',
-    color: 'from-amber-500 to-amber-700',
-    gradientFrom: '#f59e0b',
-    gradientTo: '#d97706'
   }
 };
 
