@@ -1,0 +1,8 @@
+**/*.js.map
+**/*.d.ts
+node_modules
+.next
+out
+build
+public
+src/components/FullScreenView.tsx 
