@@ -343,16 +343,21 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
   const [lastTapTime, setLastTapTime] = useState(0);
 
   // Add state for responsive padding
-  const [paddingBottom, setPaddingBottom] = useState(window.innerWidth < 768 ? 'calc(1.75rem + 56px)' : 'calc(1.75rem + 40px)');
+  const [paddingBottom, setPaddingBottom] = useState('calc(1.75rem + 40px)');
   
-  // Update padding on window resize
+  // Update padding on window resize - safely check for window
   useEffect(() => {
-    const handleResize = () => {
+    // Initialize padding based on client-side window width
+    if (typeof window !== 'undefined') {
       setPaddingBottom(window.innerWidth < 768 ? 'calc(1.75rem + 56px)' : 'calc(1.75rem + 40px)');
-    };
-    
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+      
+      const handleResize = () => {
+        setPaddingBottom(window.innerWidth < 768 ? 'calc(1.75rem + 56px)' : 'calc(1.75rem + 40px)');
+      };
+      
+      window.addEventListener('resize', handleResize);
+      return () => window.removeEventListener('resize', handleResize);
+    }
   }, []);
 
   // Initialize scroll lock at component level

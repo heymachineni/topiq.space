@@ -1,6 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  reactStrictMode: true,
+  reactStrictMode: false,
   trailingSlash: true,
   eslint: {
     ignoreDuringBuilds: true,
@@ -11,10 +11,12 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
-  webpack: (config) => {
-    // Important: return the modified config
-    return config;
+  experimental: {
+    // This is experimental but allows for custom document in compatibility with static export
+    optimizeFonts: true,
   },
+  // Ensure Next.js doesn't attempt to render pages on the server during export
+  target: 'serverless',
 };
 
 module.exports = nextConfig; 
