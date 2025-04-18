@@ -71,53 +71,51 @@ const sourceConfig: Record<ContentSource, { label: string, color: string, gradie
 
 // Get source badge for articles
 const getSourceBadge = (article: WikipediaArticle) => {
-  const badge = {
-    label: 'Wikipedia',
-    color: 'from-blue-500 to-blue-700',
-    icon: '🌐'
-  };
-  
-  if (!article || !article.source) {
-    return badge;
-  }
-  
-  if (article.source === 'hackernews') {
+  if (article.source === 'wikipedia' || !article.source) {
+    return {
+      label: 'Wikipedia',
+      color: 'from-blue-500 to-blue-700'
+    };
+  } else if (article.source === 'hackernews') {
     return {
       label: 'Hacker News',
-      color: 'from-orange-500 to-orange-700',
-      icon: '👨‍💻'
+      color: 'from-orange-500 to-orange-700'
     };
-  } else if (article.source === 'wikievents' || article.source === 'onthisday') {
-    let label = 'On This Day';
-    if (article.year) {
-      label = `${article.year}`;
-    }
+  } else if (article.source === 'onthisday') {
+    // Create a dynamic date for On This Day
+    const today = new Date();
+    const formattedDate = today.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    
     return {
-      label,
-      color: 'from-green-600 to-green-800',
-      icon: '📅'
-    };
-  } else if (article.source === 'rss') {
-    return {
-      label: 'RSS',
-      color: 'from-rose-500 to-rose-700',
-      icon: '📰'
-    };
-  } else if (article.source === 'reddit') {
-    return {
-      label: 'Reddit',
-      color: 'from-orange-500 to-orange-700',
-      icon: '👽'
+      label: `on ${formattedDate}`,
+      color: 'from-green-500 to-teal-600'
     };
   } else if (article.source === 'oksurf') {
     return {
       label: 'Trending',
-      color: 'from-cyan-500 to-cyan-700',
-      icon: '🔍'
+      color: 'from-purple-500 to-pink-600'
+    };
+  } else if (article.source === 'reddit') {
+    return {
+      label: 'Reddit',
+      color: 'from-red-500 to-red-700'
+    };
+  } else if (article.source === 'rss') {
+    return {
+      label: 'News',
+      color: 'from-emerald-500 to-emerald-700'
+    };
+  } else if (article.source === 'wikievents') {
+    return {
+      label: 'Wikipedia',
+      color: 'from-indigo-500 to-indigo-700'
     };
   }
   
-  return badge;
+  return {
+    label: 'Other',
+    color: 'from-gray-500 to-gray-700'
+  };
 };
 
 // Format date like "Apr 13"
@@ -129,21 +127,22 @@ const formatDate = (dateStr: string) => {
 
 // Get background for articles without thumbnails - pastel gradients
 const getArticleBackground = (article: WikipediaArticle): string | undefined => {
-  if (!article || !article.source) {
-    return 'linear-gradient(135deg, #3b82f6, #1e3a8a)'; // Default blue gradient for Wikipedia
-  }
+  if (article.thumbnail?.source) return undefined;
   
-  const gradients: Record<ContentSource, string> = {
-    wikipedia: 'linear-gradient(135deg, #3b82f6, #1e3a8a)',
-    hackernews: 'linear-gradient(135deg, #f97316, #c2410c)',
-    wikievents: 'linear-gradient(135deg, #22c55e, #15803d)',
-    onthisday: 'linear-gradient(135deg, #22c55e, #15803d)',
-    reddit: 'linear-gradient(135deg, #f97316, #c2410c)',
-    rss: 'linear-gradient(135deg, #f43f5e, #be123c)',
-    oksurf: 'linear-gradient(135deg, #06b6d4, #0e7490)'
+  const source = article.source || 'wikipedia';
+  
+  // Enhanced pastel gradients for better visual appeal
+  const gradients = {
+    wikipedia: 'linear-gradient(135deg, #a8c0ff, #3f5efb)',
+    onthisday: 'linear-gradient(135deg, #d4e7ff, #8aabdb)',
+    hackernews: 'linear-gradient(135deg, #ffcf8c, #ffb347)',
+    oksurf: 'linear-gradient(135deg, #c2e9fb, #81d4fa)',
+    reddit: 'linear-gradient(135deg, #ffcccb, #e57373)',
+    rss: 'linear-gradient(135deg, #a7f3d0, #10b981)',
+    wikievents: 'linear-gradient(135deg, #c7d2fe, #6366f1)'
   };
   
-  return gradients[article.source];
+  return gradients[source];
 };
 
 // Clean Hacker News extract to remove metadata and HTML tags
@@ -342,6 +341,19 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
   
   // State for double tap
   const [lastTapTime, setLastTapTime] = useState(0);
+
+  // Add state for responsive padding
+  const [paddingBottom, setPaddingBottom] = useState(window.innerWidth < 768 ? 'calc(1.75rem + 56px)' : 'calc(1.75rem + 40px)');
+  
+  // Update padding on window resize
+  useEffect(() => {
+    const handleResize = () => {
+      setPaddingBottom(window.innerWidth < 768 ? 'calc(1.75rem + 56px)' : 'calc(1.75rem + 40px)');
+    };
+    
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   // Initialize scroll lock at component level
   const { lockScroll, unlockScroll } = useScrollLock();
@@ -678,96 +690,57 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
     }, 1200);
   }, [currentIndex, isNavigationLocked, isOnCooldown]);
   
-  // Handle read more button click to open original source
+  // Open the Wikipedia article
   const handleReadMore = useCallback(() => {
-    if (!currentArticleRef.current) return;
+    if (!currentArticle) return;
     
-    const currentArticle = currentArticleRef.current;
-    
+    // Open appropriate URL based on source
     if (currentArticle.source === 'hackernews' && currentArticle.url) {
-      // Open Hacker News URL
       window.open(currentArticle.url, '_blank');
-    } else if (currentArticle.source === 'wikipedia' && currentArticle.title) {
-      // Open Wikipedia page
-      const encodedTitle = encodeURIComponent(currentArticle.title.replace(/ /g, '_'));
-      window.open(`https://en.wikipedia.org/wiki/${encodedTitle}`, '_blank');
-    } else if (currentArticle.source === 'rss' && currentArticle.url) {
-      // Open RSS article URL
-      window.open(currentArticle.url, '_blank');
+    } else if (currentArticle.source === 'wikipedia' || !currentArticle.source) {
+      window.open(`https://en.wikipedia.org/wiki/${encodeURIComponent(currentArticle.title)}`, '_blank');
+    } else if (currentArticle.source === 'wikievents') {
+      window.open(`https://en.wikipedia.org/wiki/${encodeURIComponent(currentArticle.title)}`, '_blank');
+    } else if (currentArticle.source === 'onthisday') {
+      // Get current date for the on this day page
+      const today = new Date();
+      const month = today.getMonth() + 1; // getMonth() is 0-indexed
+      const day = today.getDate();
+      
+      // Redirect to Wikipedia's On This Day page instead of Google search
+      window.open(`https://en.wikipedia.org/wiki/Wikipedia:On_this_day/${month}_${day}`, '_blank');
+    } else if (currentArticle.source === 'oksurf') {
+      // For OK.Surf, search the headline
+      const query = encodeURIComponent(currentArticle.title);
+      window.open(`https://www.google.com/search?q=${query}`, '_blank');
     } else if (currentArticle.source === 'reddit' && currentArticle.url) {
-      // Open Reddit post
       window.open(currentArticle.url, '_blank');
-    } else if (currentArticle.source === 'oksurf' && currentArticle.url) {
-      // Open OK.Surf result
-      window.open(currentArticle.url, '_blank');
-    } else if (currentArticle.url) {
-      // Generic fallback for anything with a URL
+    } else if (currentArticle.source === 'rss' && currentArticle.url) {
       window.open(currentArticle.url, '_blank');
     }
-  }, []);
-
-  // Get the read more button text based on article source
-  const getReadMoreButtonText = (source?: ContentSource) => {
+  }, [currentArticle]);
+  
+  // Get the appropriate read more button text based on article source
+  const getReadMoreButtonText = useCallback((source?: ContentSource): string => {
     switch (source) {
       case 'hackernews':
         return 'Read on Hacker News';
       case 'wikipedia':
         return 'Read on Wikipedia';
       case 'wikievents':
+        return 'Read on Wikipedia';
       case 'onthisday':
-        return 'Read about this day';
+        return 'Read full story';
+      case 'oksurf':
+        return 'Check it out';
       case 'reddit':
         return 'Read on Reddit';
       case 'rss':
-        return 'Read full article';
-      case 'oksurf':
-        return 'View search result';
+        return 'Read on RSS';
       default:
         return 'Read more';
     }
-  };
-
-  // Get gradient background for article based on source
-  const getSourceBackground = (source?: ContentSource) => {
-    switch (source) {
-      case 'wikipedia':
-        return {
-          gradient: 'linear-gradient(135deg, #3b82f6, #1e3a8a)',
-          emoji: '🌐'
-        };
-      case 'hackernews':
-        return {
-          gradient: 'linear-gradient(135deg, #f97316, #c2410c)',
-          emoji: '👨‍💻'
-        };
-      case 'wikievents':
-      case 'onthisday':
-        return {
-          gradient: 'linear-gradient(135deg, #22c55e, #15803d)',
-          emoji: '📅'
-        };
-      case 'reddit':
-        return {
-          gradient: 'linear-gradient(135deg, #ff4500, #d73a00)',
-          emoji: '👽'
-        };
-      case 'oksurf':
-        return {
-          gradient: 'linear-gradient(135deg, #00C9FF, #92FE9D)',
-          emoji: '🌍'
-        };
-      case 'rss':
-        return {
-          gradient: 'linear-gradient(135deg, #FF512F, #DD2476)',
-          emoji: '📰'
-        };
-      default:
-        return {
-          gradient: 'linear-gradient(135deg, #232526, #414345)',
-          emoji: '🌐'
-        };
-    }
-  };
+  }, []);
   
   // Navigate to likes page
   const handleViewLikes = () => {
@@ -794,10 +767,7 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
   }, [currentIndex, articles]);
   
   // Handle double tap to like
-  const handleTap = (e: React.MouseEvent) => {
-    // Prevent any unintended scrolling
-    e.preventDefault();
-    
+  const handleTap = () => {
     const now = Date.now();
     const DOUBLE_TAP_DELAY = 300; // ms
     
@@ -856,37 +826,23 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
   };
   
   // Filter out articles without thumbnails - skip articles with no images
-  // EXCEPT for "On This Day" and "Hacker News" which use color backgrounds
   useEffect(() => {
     if (articles.length > 0 && currentArticle && !currentArticle.thumbnail?.source) {
-      // Don't filter On This Day and Hacker News articles as they use colors and emojis
-      if (currentArticle.source === 'onthisday' || currentArticle.source === 'hackernews') {
-        return; // Keep these articles even without images
-      }
-      
-      // For other sources, find the next article with an image or from excluded sources
-      const nextArticleWithImageOrSpecialSource = articles.findIndex((article, index) => 
-        index > currentIndex && (
-          article.thumbnail?.source || 
-          article.source === 'onthisday' || 
-          article.source === 'hackernews'
-        )
+      // If current article has no image, find the next one with an image
+      const nextArticleWithImage = articles.findIndex((article, index) => 
+        index > currentIndex && article.thumbnail?.source
       );
       
-      if (nextArticleWithImageOrSpecialSource !== -1) {
-        setCurrentIndex(nextArticleWithImageOrSpecialSource);
+      if (nextArticleWithImage !== -1) {
+        setCurrentIndex(nextArticleWithImage);
       } else {
         // If no articles with images ahead, look behind
-        const prevArticleWithImageOrSpecialSource = [...articles].reverse().findIndex((article, idx) => 
-          (articles.length - 1 - idx) < currentIndex && (
-            article.thumbnail?.source || 
-            article.source === 'onthisday' || 
-            article.source === 'hackernews'
-          )
+        const prevArticleWithImage = [...articles].reverse().findIndex((article, idx) => 
+          (articles.length - 1 - idx) < currentIndex && article.thumbnail?.source
         );
         
-        if (prevArticleWithImageOrSpecialSource !== -1) {
-          setCurrentIndex(articles.length - 1 - prevArticleWithImageOrSpecialSource);
+        if (prevArticleWithImage !== -1) {
+          setCurrentIndex(articles.length - 1 - prevArticleWithImage);
         }
       }
     }
@@ -996,9 +952,42 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
       style={{ 
         WebkitOverflowScrolling: 'touch',
         overscrollBehavior: 'contain',
-        touchAction: 'pan-y',
-        scrollBehavior: 'smooth',
-        WebkitTapHighlightColor: 'transparent'
+        touchAction: 'pan-y'
+      }}
+      onTouchStart={(e) => {
+        // Record starting touch position for swipe detection
+        if (e.touches && e.touches.length === 1) {
+          const touch = e.touches[0];
+          touchStartY.current = touch.clientY;
+        }
+      }}
+      onTouchEnd={(e) => {
+        // If we have valid touch start and end positions, determine if it was a swipe
+        if (touchStartY.current !== null && touchEndY.current !== null) {
+          const deltaY = touchEndY.current - touchStartY.current;
+          
+          // Threshold for considering it a swipe (adjust as needed)
+          if (Math.abs(deltaY) > 50) {
+            if (deltaY > 0) {
+              // Swipe down - go to previous
+              goToPrevious();
+            } else {
+              // Swipe up - go to next
+              goToNext();
+            }
+          }
+          
+          // Reset values
+          touchStartY.current = null;
+          touchEndY.current = null;
+        }
+      }}
+      onTouchMove={(e) => {
+        // Update current touch position
+        if (e.touches && e.touches.length === 1) {
+          const touch = e.touches[0];
+          touchEndY.current = touch.clientY;
+        }
       }}
     >
       {/* Fixed header at the top */}
@@ -1040,8 +1029,9 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
             animate="animate"
             exit="exit"
             custom={swipeDirection}
+            onClick={handleTap}
           >
-            {/* Background image - handle articles without images using gradients */}
+            {/* Background image - simplified to show just one image */}
             <motion.div 
               className="absolute inset-0 w-full h-full bg-cover bg-center"
               initial={{ scale: 1.1, opacity: 0.5 }}
@@ -1051,49 +1041,52 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
                 transition: { duration: 0.8, ease: [0.16, 1, 0.3, 1] }
               }}
             >
-              {currentArticle.thumbnail?.source ? (
-                /* With thumbnail - use the image */
-                <img
-                  src={currentArticle.thumbnail.source}
-                  alt={currentArticle.title}
-                  className="absolute inset-0 w-full h-full object-cover"
-                  style={{ 
-                    opacity: 1,
-                    objectFit: 'cover',
-                    filter: 'none',
-                    WebkitFilter: 'none'
-                  }}
-                  loading="eager"
-                  decoding="async"
-                  onError={(e) => {
-                    // If image fails to load, set a gradient background
-                    const div = document.createElement('div');
-                    div.className = "absolute inset-0 w-full h-full flex items-center justify-center";
-                    div.style.background = getSourceBackground(currentArticle.source).gradient;
-                    div.innerHTML = `<div class="text-[120px] opacity-30">${getSourceBackground(currentArticle.source).emoji}</div>`;
-                    e.currentTarget.parentNode?.replaceChild(div, e.currentTarget);
-                  }}
-                />
+              {/* Single image or gradient background */}
+              {currentArticle.thumbnail ? (
+                <div className="absolute inset-0">
+                  <div 
+                    className="w-full h-full bg-cover bg-center"
+                    style={{ 
+                      backgroundImage: `url(${currentArticle.thumbnail.source})`,
+                      backgroundColor: 'rgba(0, 0, 0, 0.3)'
+                    }}
+                  >
+                    <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-black/30 opacity-70"></div>
+                  </div>
+                </div>
               ) : (
-                /* Without thumbnail - use gradient and emoji */
+                // Fallback for articles without images
                 <div 
-                  className="absolute inset-0 w-full h-full flex items-center justify-center"
+                  className="absolute inset-0 w-full h-full"
                   style={{ 
-                    background: getSourceBackground(currentArticle.source).gradient,
-                    opacity: 1.0
+                    background: getArticleBackground(currentArticle) || 'linear-gradient(135deg, #1a202c, #2d3748)'
                   }}
                 >
-                  <div className="text-[120px] opacity-30">
-                    {getSourceBackground(currentArticle.source).emoji}
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    {currentArticle.source === 'onthisday' && (
+                      <span className="text-6xl opacity-90 drop-shadow-lg">⏳</span>
+                    )}
+                    {currentArticle.source === 'hackernews' && (
+                      <span className="text-6xl opacity-90 drop-shadow-lg">💻</span>
+                    )}
+                    {currentArticle.source === 'oksurf' && (
+                      <span className="text-6xl opacity-90 drop-shadow-lg">📰</span>
+                    )}
+                    {(!currentArticle.source || currentArticle.source === 'wikipedia') && (
+                      <span className="text-6xl opacity-90 drop-shadow-lg">📚</span>
+                    )}
                   </div>
                 </div>
               )}
-              <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-transparent" />
+              
+              {/* Overlay gradient for better text readability */}
+              <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-black/30 opacity-70"></div>
             </motion.div>
 
-            {/* Content container with responsive bottom padding - using Tailwind classes */}
+            {/* Content container - update to include image descriptions when relevant */}
             <motion.div 
-              className="absolute bottom-0 left-0 right-0 px-6 py-7 z-20 bg-black/30 backdrop-blur-md pb-[calc(1.75rem+76px)] md:pb-10"
+              className="absolute bottom-0 left-0 right-0 px-6 py-7 z-20 bg-black/30 backdrop-blur-md"
+              style={{ paddingBottom }}
               initial={{ opacity: 0, y: 20 }}
               animate={{ 
                 opacity: 1, 
@@ -1124,12 +1117,10 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
               {/* Article content */}
               <div className="flex items-start justify-between relative">
                 <div className="flex-1 pr-4">
-                  {/* Article title with gallery button */}
-                  <div className="flex items-start mb-0.5">
-                    <h2 className="text-4xl font-bold font-garamond pr-3 text-white" style={{ fontSize: '24px', lineHeight: '1.2' }}>
-                      {currentArticle.title}
-                    </h2>
-                  </div>
+                  {/* Article title */}
+                  <h2 className="text-4xl font-bold font-garamond mb-0.5 pr-16 text-white" style={{ fontSize: '24px', lineHeight: '1.2' }}>
+                    {currentArticle.title}
+                  </h2>
                   
                   {/* Description */}
                   {currentArticle.description && currentArticle.source !== 'hackernews' && (
@@ -1226,53 +1217,13 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
       <div className="fixed inset-0 pointer-events-none z-10 flex">
         <div 
           className="h-full w-1/2 pointer-events-auto opacity-0 touch-manipulation"
+          onClick={goToPrevious}
           style={{ touchAction: 'manipulation' }}
-          onTouchStart={(e) => {
-            // Only handle touch events for swipe navigation
-            if (e.touches && e.touches.length === 1) {
-              touchStartY.current = e.touches[0].clientY;
-            }
-          }}
-          onTouchEnd={() => {
-            if (touchStartY.current !== null && touchEndY.current !== null) {
-              const deltaY = touchEndY.current - touchStartY.current;
-              if (Math.abs(deltaY) > 50 && deltaY > 0) {
-                goToPrevious();
-              }
-              touchStartY.current = null;
-              touchEndY.current = null;
-            }
-          }}
-          onTouchMove={(e) => {
-            if (e.touches && e.touches.length === 1) {
-              touchEndY.current = e.touches[0].clientY;
-            }
-          }}
         />
         <div 
           className="h-full w-1/2 pointer-events-auto opacity-0 touch-manipulation"
+          onClick={goToNext}
           style={{ touchAction: 'manipulation' }}
-          onTouchStart={(e) => {
-            // Only handle touch events for swipe navigation
-            if (e.touches && e.touches.length === 1) {
-              touchStartY.current = e.touches[0].clientY;
-            }
-          }}
-          onTouchEnd={() => {
-            if (touchStartY.current !== null && touchEndY.current !== null) {
-              const deltaY = touchEndY.current - touchStartY.current;
-              if (Math.abs(deltaY) > 50 && deltaY < 0) {
-                goToNext();
-              }
-              touchStartY.current = null;
-              touchEndY.current = null;
-            }
-          }}
-          onTouchMove={(e) => {
-            if (e.touches && e.touches.length === 1) {
-              touchEndY.current = e.touches[0].clientY;
-            }
-          }}
         />
       </div>
       
