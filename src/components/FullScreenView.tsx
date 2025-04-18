@@ -23,49 +23,31 @@ interface FullScreenViewProps {
   onScrollToTop?: () => void;
 }
 
-// Source configuration for styling and labels
-const sourceConfig: Record<ContentSource, { label: string, color: string, gradientFrom: string, gradientTo: string }> = {
+// Source-specific configurations for badges and labels
+const sourceConfig = {
   'wikipedia': {
     label: 'Wikipedia',
-    color: 'from-blue-500 to-blue-700',
-    gradientFrom: '#1a237e',
-    gradientTo: '#283593'
-  },
-  'hackernews': {
-    label: 'Hacker News',
-    color: 'from-orange-500 to-orange-700',
-    gradientFrom: '#bf360c',
-    gradientTo: '#d84315'
+    color: 'bg-blue-500'
   },
   'onthisday': {
     label: 'On This Day',
-    color: 'from-green-500 to-green-700',
-    gradientFrom: '#1b5e20',
-    gradientTo: '#2e7d32'
+    color: 'bg-blue-300'
+  },
+  'hackernews': {
+    label: 'Hacker News',
+    color: 'bg-orange-400'
   },
   'oksurf': {
-    label: 'Trending',
-    color: 'from-purple-500 to-purple-700',
-    gradientFrom: '#4a148c',
-    gradientTo: '#6a1b9a'
-  },
+    label: 'OK Surf',
+    color: 'bg-green-400'
+  }, 
   'reddit': {
     label: 'Reddit',
-    color: 'from-red-500 to-red-700',
-    gradientFrom: '#b71c1c',
-    gradientTo: '#c62828'
-  },
-  'rss': {
-    label: 'RSS',
-    color: 'from-emerald-500 to-emerald-700',
-    gradientFrom: '#10b981',
-    gradientTo: '#047857'
+    color: 'bg-red-500'
   },
   'wikievents': {
-    label: 'Wikipedia',
-    color: 'from-indigo-500 to-indigo-700',
-    gradientFrom: '#6366f1',
-    gradientTo: '#4338ca'
+    label: 'Current Events',
+    color: 'bg-blue-600'
   }
 };
 
@@ -99,11 +81,6 @@ const getSourceBadge = (article: WikipediaArticle) => {
     return {
       label: 'Reddit',
       color: 'from-red-500 to-red-700'
-    };
-  } else if (article.source === 'rss') {
-    return {
-      label: 'News',
-      color: 'from-emerald-500 to-emerald-700'
     };
   } else if (article.source === 'wikievents') {
     return {
@@ -145,17 +122,38 @@ const getArticleBackground = (article: WikipediaArticle): string | undefined => 
   return gradients[source];
 };
 
-// Clean Hacker News extract to remove metadata and HTML tags
+// Article gradient background colors by source
+const gradientBackgrounds: Record<ContentSource, string> = {
+  wikipedia: 'linear-gradient(135deg, #1a237e, #283593)',
+  wikievents: 'linear-gradient(135deg, #6366f1, #4338ca)',
+  hackernews: 'linear-gradient(135deg, #bf360c, #d84315)',
+  reddit: 'linear-gradient(135deg, #b71c1c, #c62828)',
+  onthisday: 'linear-gradient(135deg, #d4e7ff, #8aabdb)',
+  oksurf: 'linear-gradient(135deg, #4a148c, #6a1b9a)'
+};
+
+// Format the title, accommodating different sources
+const getFormattedTitle = (article: WikipediaArticle): string => {
+  if (article && article.title) {
+    return article.title;
+  }
+  return "No Title Available";
+}
+
+// Clean HackerNews extract (for text-only posts)
 const cleanHackerNewsExtract = (article: WikipediaArticle): string => {
-  if (article.source !== 'hackernews') return article.extract;
+  // If no extract available, return a placeholder
+  if (!article.extract) return "No content available";
   
-  // Remove the points and comments pattern
-  let cleanedExtract = article.extract.replace(/\d+ points \| \d+ comments/, '');
-  
-  // Remove HTML tags
-  cleanedExtract = cleanedExtract.replace(/<[^>]*>/g, '');
-  
-  return cleanedExtract.trim() || 'No description available';
+  // Strip any HTML tags using a regex
+  return article.extract
+    .replace(/<[^>]*>/g, '') // Remove HTML tags
+    .replace(/&lt;/g, '<')    // Replace HTML entities
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#x27;/g, "'")
+    .trim();
 };
 
 // Parse HTML content safely with DOMPurify
@@ -720,8 +718,6 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
       window.open(`https://www.google.com/search?q=${query}`, '_blank');
     } else if (currentArticle.source === 'reddit' && currentArticle.url) {
       window.open(currentArticle.url, '_blank');
-    } else if (currentArticle.source === 'rss' && currentArticle.url) {
-      window.open(currentArticle.url, '_blank');
     }
   }, [currentArticle]);
   
@@ -740,8 +736,6 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
         return 'Check it out';
       case 'reddit':
         return 'Read on Reddit';
-      case 'rss':
-        return 'Read on RSS';
       default:
         return 'Read more';
     }

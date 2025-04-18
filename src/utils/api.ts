@@ -163,14 +163,23 @@ export async function fetchRandomWikipediaArticle(): Promise<WikipediaArticle> {
   
   const fetchFn = async () => {
     try {
-      // Try up to 5 times to get an article with a high-quality thumbnail
+      // Try up to 5 times to get an article with a high-quality thumbnail and good content
       for (let attempt = 0; attempt < 5; attempt++) {
         // Use the official Wikipedia REST API for random summary
         const response = await axios.get('https://en.wikipedia.org/api/rest_v1/page/random/summary');
         const data = response.data;
         
-        // Check if thumbnail exists and has sufficient width
-        if (data.thumbnail && data.thumbnail.width >= 800) {
+        // Quality checks:
+        // 1. Must have a high-quality thumbnail
+        // 2. Must have a good extract (at least 100 characters)
+        // 3. Must have a displaytitle
+        const hasQualityThumbnail = data.thumbnail && data.thumbnail.width >= 800;
+        const hasGoodExtract = data.extract && data.extract.length >= 100;
+        const hasDisplayTitle = !!data.title;
+        
+        if (hasQualityThumbnail && hasGoodExtract && hasDisplayTitle) {
+          console.log(`Found high-quality article on attempt ${attempt + 1}: ${data.title}`);
+          
           // Convert thumbnail to high-res
           const highResThumbnail = getHighResImage(data.thumbnail);
           
@@ -180,35 +189,50 @@ export async function fetchRandomWikipediaArticle(): Promise<WikipediaArticle> {
             extract: data.extract,
             thumbnail: highResThumbnail,
             description: data.description,
-            source: 'wikipedia' as ContentSource
+            source: 'wikipedia' as ContentSource,
+            url: data.content_urls?.desktop?.page
           };
         }
         
-        console.log(`Random article attempt ${attempt + 1} had no high-quality thumbnail, retrying...`);
+        // Log why the article was rejected
+        const reasons = [];
+        if (!hasQualityThumbnail) reasons.push('no high-quality thumbnail');
+        if (!hasGoodExtract) reasons.push('extract too short');
+        if (!hasDisplayTitle) reasons.push('no title');
+        
+        console.log(`Random article attempt ${attempt + 1} for ${data.title || 'unknown'} rejected: ${reasons.join(', ')}`);
       }
       
-      // If we couldn't find an article with a thumbnail after several attempts, 
-      // return the last fetched article anyway
+      // If we couldn't find a suitable article after several attempts, make one more try
+      // with relaxed criteria as fallback
+      console.log('Could not find high-quality article after multiple attempts, trying with relaxed criteria');
       const fallbackResponse = await axios.get('https://en.wikipedia.org/api/rest_v1/page/random/summary');
       const fallbackData = fallbackResponse.data;
-      const highResThumbnail = getHighResImage(fallbackData.thumbnail);
       
-      return {
-        pageid: fallbackData.pageid,
-        title: fallbackData.title,
-        extract: fallbackData.extract,
-        thumbnail: highResThumbnail,
-        description: fallbackData.description,
-        source: 'wikipedia' as ContentSource
-      };
+      // Still require a thumbnail, but accept any size
+      if (fallbackData.thumbnail) {
+        const highResThumbnail = getHighResImage(fallbackData.thumbnail);
+        
+        return {
+          pageid: fallbackData.pageid,
+          title: fallbackData.title || 'Wikipedia Article',
+          extract: fallbackData.extract || 'No description available',
+          thumbnail: highResThumbnail,
+          description: fallbackData.description,
+          source: 'wikipedia' as ContentSource,
+          url: fallbackData.content_urls?.desktop?.page
+        };
+      }
+      
+      // If all else fails, throw an error
+      throw new Error('Could not find any suitable Wikipedia article after multiple attempts');
     } catch (error) {
       console.error('Error fetching random Wikipedia article:', error);
       throw error;
     }
   };
   
-  // Don't cache random articles - we want a new one each time
-  return fetchFn();
+  return await getFromCacheOrFetch(cacheKey, fetchFn);
 }
 
 export async function fetchRandomArticles(count: number = 10): Promise<WikipediaArticle[]> {
@@ -234,7 +258,7 @@ export async function fetchArticlesBySearch(searchTerm: string): Promise<Wikiped
     const cacheKey = `wikipedia_search_${searchTerm}`;
     
     const fetchFn = async () => {
-      // Request more results than needed since we'll filter some out
+      // Request more results than needed since we'll filter some out for quality
       const searchResponse = await axios.get(`https://en.wikipedia.org/w/api.php`, {
         params: {
           action: 'query',
@@ -242,11 +266,12 @@ export async function fetchArticlesBySearch(searchTerm: string): Promise<Wikiped
           srsearch: searchTerm,
           format: 'json',
           origin: '*',
-          srlimit: 20 // Increased to get more candidates
+          srlimit: 30 // Significantly increased to get more candidates for high-quality filtering
         }
       });
       
       const searchResults = searchResponse.data.query.search;
+      console.log(`Received ${searchResults.length} initial search results for "${searchTerm}"`);
       
       // Fetch full data for each search result
       const articlePromises = searchResults.map(async (result: any) => {
@@ -255,9 +280,16 @@ export async function fetchArticlesBySearch(searchTerm: string): Promise<Wikiped
           const response = await axios.get(`https://en.wikipedia.org/api/rest_v1/page/summary/${titleParam}`);
           const data = response.data;
           
-          // Check if thumbnail exists and has sufficient width
-          if (!data.thumbnail || (data.thumbnail && data.thumbnail.width < 800)) {
-            console.log(`Article ${data.title} has no high-quality thumbnail, skipping`);
+          // Quality checks:
+          // 1. Must have a high-quality thumbnail
+          // 2. Must have a good extract (at least 100 characters)
+          // 3. Must have a displaytitle
+          const hasQualityThumbnail = data.thumbnail && data.thumbnail.width >= 800;
+          const hasGoodExtract = data.extract && data.extract.length >= 100;
+          const hasDisplayTitle = !!data.title;
+          
+          if (!hasQualityThumbnail || !hasGoodExtract || !hasDisplayTitle) {
+            console.log(`Article "${data.title}" doesn't meet quality criteria, skipping`);
             return null;
           }
           
@@ -270,7 +302,8 @@ export async function fetchArticlesBySearch(searchTerm: string): Promise<Wikiped
             extract: data.extract,
             thumbnail: highResThumbnail,
             description: data.description,
-            source: 'wikipedia' as ContentSource
+            source: 'wikipedia' as ContentSource,
+            url: data.content_urls?.desktop?.page
           };
         } catch (error) {
           console.error(`Error fetching article data for ${result.title}:`, error);
@@ -283,15 +316,13 @@ export async function fetchArticlesBySearch(searchTerm: string): Promise<Wikiped
       
       // Filter out any null results
       const filteredArticles = articles.filter(article => article !== null);
+      console.log(`Found ${filteredArticles.length} high-quality articles for search "${searchTerm}"`);
       
-      // If we didn't get enough high-quality articles, try to fill in with whatever we have
+      // If we didn't get enough high-quality articles, try to fill in with additional random articles
       if (filteredArticles.length < 5) {
-        console.log(`Only found ${filteredArticles.length} high-quality articles, fetching additional articles`);
+        console.log(`Only found ${filteredArticles.length} high-quality articles for "${searchTerm}", fetching additional articles`);
         const additionalArticles = await fetchRandomArticles(10);
-        const highQualityAdditional = additionalArticles.filter(
-          article => article.thumbnail && article.thumbnail.width && article.thumbnail.width >= 800
-        );
-        filteredArticles.push(...highQualityAdditional.slice(0, 10 - filteredArticles.length));
+        filteredArticles.push(...additionalArticles.slice(0, 10 - filteredArticles.length));
       }
       
       return filteredArticles;
@@ -332,6 +363,10 @@ export async function fetchOnThisDayEvents(count: number = 5): Promise<Wikipedia
       // Shuffle and take a subset of events
       const shuffledEvents = events.sort(() => 0.5 - Math.random()).slice(0, count);
       
+      // Format date in a more readable way for display
+      const dateOptions: Intl.DateTimeFormatOptions = { month: 'long', day: 'numeric' };
+      const readableDate = today.toLocaleDateString('en-US', dateOptions);
+      
       // Convert to WikipediaArticle format
       return shuffledEvents.map((event: any) => {
         // Create a unique ID for the event
@@ -339,9 +374,9 @@ export async function fetchOnThisDayEvents(count: number = 5): Promise<Wikipedia
         
         return {
           pageid: eventId,
-          title: `${event.year}: Historical Event`,
+          title: `${event.year}: ${event.description.slice(0, 60)}${event.description.length > 60 ? '...' : ''}`,
           extract: event.description,
-          description: `On ${formattedDate}, in the year ${event.year}`,
+          description: `On ${readableDate}, in the year ${event.year}`,
           year: event.year,
           date: formattedDate,
           source: 'onthisday' as ContentSource,
@@ -581,72 +616,70 @@ export async function fetchOkSurfNews(count: number = 5): Promise<WikipediaArtic
 
 // ========== REDDIT API ==========
 export async function fetchRedditPosts(count: number = 5): Promise<WikipediaArticle[]> {
-  const cacheKey = `reddit_top_${count}`;
-
+  const cacheKey = `reddit_${count}`;
+  
   const fetchFn = async () => {
     try {
-      // Use the Reddit JSON API - Pull from multiple subreddits for variety
-      const subreddits = ['todayilearned', 'science', 'worldnews', 'explainlikeimfive', 'history'];
-      const randomSubreddit = subreddits[Math.floor(Math.random() * subreddits.length)];
+      console.log(`Fetching Reddit posts, requested count: ${count}`);
       
-      console.log(`Fetching Reddit posts from r/${randomSubreddit}`);
-      
-      const response = await axios.get(`https://www.reddit.com/r/${randomSubreddit}/top.json`, {
-        params: {
-          limit: count * 2, // Fetch more than needed to account for filtering
-          t: 'day' // Time filter: today's top posts
-        }
-      });
+      // Fetch from the JSON API
+      const response = await axios.get(
+        `https://www.reddit.com/r/todayilearned+science+worldnews+technology+history.json?limit=${count * 2}`
+      );
       
       if (!response.data?.data?.children) {
         console.error('Invalid Reddit API response:', response.data);
         return [];
       }
       
-      const posts = response.data.data.children;
-      console.log(`Received ${posts.length} posts from Reddit`);
+      // Filter posts with appropriate content
+      const posts = response.data.data.children
+        .filter((post: any) => 
+          // Ensure post has title and isn't NSFW
+          post.data && 
+          post.data.title && 
+          !post.data.over_18 &&
+          // Keep only posts with images or significant text
+          (post.data.thumbnail && post.data.thumbnail !== 'self' && post.data.thumbnail !== 'default') ||
+          (post.data.selftext && post.data.selftext.length > 100)
+        )
+        .slice(0, count);
       
-      // Convert Reddit posts to WikipediaArticle format
-      const articles: WikipediaArticle[] = posts
-        .filter((post: any) => {
-          // We'll accept posts even without selftext
-          return post.data && post.data.title && !post.data.stickied && !post.data.over_18;
-        })
-        .slice(0, count)
+      // Map to our article format
+      const articles = posts
         .map((post: any) => {
           const data = post.data;
           
-          // Generate a unique pageid based on the Reddit post ID
-          const pageid = parseInt(data.id, 36) % 100000000;
-          
-          // Extract content - either selftext or the post URL's title
-          const extract = data.selftext || data.title;
-          
-          // Get the best available thumbnail
-          let thumbnail = undefined;
-          if (data.preview?.images?.[0]?.source?.url) {
-            try {
-              // Get the highest resolution from preview source - this is better than thumbnail
-              const imageUrl = data.preview.images[0].source.url.replace(/&amp;/g, '&');
-              thumbnail = { source: imageUrl };
-            } catch (e) {
-              // If preview parsing fails, try fallback
-              if (data.thumbnail && data.thumbnail !== 'self' && data.thumbnail !== 'default' && data.thumbnail !== 'nsfw') {
-                thumbnail = { source: data.thumbnail };
-              }
-            }
-          } else if (data.thumbnail && data.thumbnail !== 'self' && data.thumbnail !== 'default' && data.thumbnail !== 'nsfw') {
-            thumbnail = { source: data.thumbnail };
+          // Extract image
+          let thumbnail;
+          if (data.preview && data.preview.images && data.preview.images[0]) {
+            const image = data.preview.images[0];
+            const source = image.source;
+            
+            // Get the highest resolution available
+            thumbnail = {
+              source: source.url.replace(/&amp;/g, '&'),
+              width: source.width,
+              height: source.height
+            };
+          } else if (data.thumbnail && data.thumbnail !== 'self' && data.thumbnail !== 'default') {
+            thumbnail = {
+              source: data.thumbnail,
+              width: data.thumbnail_width || 140,
+              height: data.thumbnail_height || 140
+            };
           }
           
+          // Extract text content
+          const extract = data.selftext && data.selftext.length > 0
+            ? data.selftext.substring(0, 500) + (data.selftext.length > 500 ? '...' : '')
+            : `Posted by u/${data.author} in r/${data.subreddit}`;
+          
           return {
-            pageid,
+            pageid: parseInt(data.id, 36),
             title: data.title,
-            extract: extract.length > 500 
-              ? `${extract.substring(0, 500)}...` 
-              : extract,
-            extract_html: data.selftext_html,
-            thumbnail,
+            extract,
+            thumbnail: getHighResImage(thumbnail),
             description: `Posted by u/${data.author} in r/${data.subreddit}`,
             url: `https://www.reddit.com${data.permalink}`,
             source: 'reddit' as ContentSource
@@ -657,139 +690,6 @@ export async function fetchRedditPosts(count: number = 5): Promise<WikipediaArti
       return articles;
     } catch (error) {
       console.error('Error fetching Reddit posts:', error);
-      // Return empty array on error
-      return [];
-    }
-  };
-  
-  return await getFromCacheOrFetch(cacheKey, fetchFn);
-}
-
-// ========== RSS FEEDS API ==========
-export async function fetchRssFeeds(count: number = 5): Promise<WikipediaArticle[]> {
-  const cacheKey = `rss_feeds_${count}`;
-
-  const fetchFn = async () => {
-    try {
-      // List of diverse RSS feeds
-      const rssSources = [
-        { 
-          url: 'https://feeds.bbci.co.uk/news/world/rss.xml',
-          name: 'BBC News'
-        },
-        { 
-          url: 'https://rss.nytimes.com/services/xml/rss/nyt/World.xml',
-          name: 'New York Times'
-        },
-        { 
-          url: 'https://feeds.npr.org/1001/rss.xml',
-          name: 'NPR News'
-        },
-        {
-          url: 'https://www.economist.com/science-and-technology/rss.xml',
-          name: 'The Economist'
-        },
-        {
-          url: 'https://www.wired.com/feed/rss',
-          name: 'Wired'
-        }
-      ];
-      
-      // Randomly select 2 feeds
-      const shuffledSources = shuffleArray(rssSources).slice(0, 2);
-      console.log(`Fetching RSS feeds from: ${shuffledSources.map(s => s.name).join(', ')}`);
-      
-      // Use a RSS to JSON converter API
-      const feedPromises = shuffledSources.map(async (source) => {
-        try {
-          // Use the RSS-to-JSON API to convert RSS to JSON
-          const response = await axios.get(`https://api.rss2json.com/v1/api.json`, {
-            params: {
-              rss_url: source.url,
-              api_key: 'free', // Free tier
-              count: Math.ceil(count / 2)
-            }
-          });
-          
-          if (!response.data?.items || !Array.isArray(response.data.items)) {
-            console.error(`Invalid RSS response for ${source.name}:`, response.data);
-            return [];
-          }
-          
-          console.log(`Received ${response.data.items.length} items from ${source.name}`);
-          
-          // Map items to WikipediaArticle format
-          return response.data.items.map((item: any) => {
-            // Generate a deterministic pageid
-            const pageid = parseInt(item.guid?.replace(/\D/g, '').substring(0, 8) || Math.random().toString().slice(2), 10) || 
-                          Math.floor(Math.random() * 100000000);
-            
-            // Extract an image if available
-            let thumbnail;
-            // Try multiple image sources in order of likely quality
-            if (item.enclosure?.link && item.enclosure.type?.startsWith('image/')) {
-              // Enclosure is often highest quality when it's an image
-              thumbnail = { source: item.enclosure.link };
-            } else if (item.image?.url) {
-              // Some feeds provide a dedicated image field
-              thumbnail = { source: item.image.url };
-            } else if (item.thumbnail) {
-              // Fall back to thumbnail
-              thumbnail = { source: item.thumbnail };
-            } else if (item.description) {
-              // Try to extract image from HTML description as last resort
-              try {
-                const parser = new DOMParser();
-                const doc = parser.parseFromString(item.description, 'text/html');
-                const firstImage = doc.querySelector('img');
-                if (firstImage && firstImage.src) {
-                  thumbnail = { source: firstImage.src };
-                }
-              } catch (e) {
-                console.log('Failed to extract image from description:', e);
-              }
-            }
-            
-            // Ensure we have a title
-            const title = item.title || `${source.name} article`;
-            
-            // Clean up the description (remove HTML tags for plain text extract)
-            const cleanedDescription = item.description
-              ? item.description
-                .replace(/<[^>]*>/g, ' ') // Replace HTML tags with spaces
-                .replace(/\s{2,}/g, ' ')  // Replace multiple spaces with single space
-                .trim()
-              : 'No description available';
-            
-            return {
-              pageid,
-              title,
-              extract: cleanedDescription.length > 500 
-                ? `${cleanedDescription.substring(0, 500)}...` 
-                : cleanedDescription,
-              extract_html: item.description,
-              thumbnail,
-              description: `From ${source.name}`,
-              url: item.link,
-              date: item.pubDate,
-              source: 'rss' as ContentSource
-            };
-          });
-        } catch (error) {
-          console.error(`Error fetching RSS feed from ${source.name}:`, error);
-          return [];
-        }
-      });
-      
-      // Wait for all feed requests to complete
-      const results = await Promise.all(feedPromises);
-      
-      // Flatten and shuffle the results
-      const articles = shuffleArray(results.flat()).slice(0, count);
-      console.log(`Converted ${articles.length} RSS items to articles`);
-      return articles;
-    } catch (error) {
-      console.error('Error fetching RSS feeds:', error);
       // Return empty array on error
       return [];
     }
@@ -989,15 +889,6 @@ export const fetchMultiSourceArticles = async (
       fetchWikipediaCurrentEvents(sourceRequests.wikievents)
         .then(articles => allArticles.push(...articles))
         .catch(err => console.error('Error fetching Wikipedia current events:', err))
-    );
-  }
-  
-  // RSS Feeds
-  if (sourceRequests.rss && sourceRequests.rss > 0) {
-    promises.push(
-      fetchRssFeeds(sourceRequests.rss)
-        .then(articles => allArticles.push(...articles))
-        .catch(err => console.error('Error fetching RSS feeds:', err))
     );
   }
   

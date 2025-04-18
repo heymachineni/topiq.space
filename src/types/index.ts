@@ -10,7 +10,20 @@ export interface WikipediaPageImage {
   originalimage?: WikipediaImage;
 }
 
+export interface LinkPreview {
+  url: string;
+  title: string;
+  description: string;
+  image: string;
+  domain: string;
+}
+
 export interface WikipediaApiResponse {
+  batchcomplete: string;
+  continue: {
+    gpsoffset: number;
+    continue: string;
+  };
   query: {
     pages: Record<string, WikipediaPage>;
   };
@@ -20,39 +33,37 @@ export interface WikipediaPage {
   pageid: number;
   ns: number;
   title: string;
-  extract: string;
   thumbnail?: {
     source: string;
     width: number;
     height: number;
   };
+  pageimage?: string;
+  extract?: string;
   description?: string;
 }
 
 // Source types for multi-source content
-export type ContentSource = 'wikipedia' | 'onthisday' | 'hackernews' | 'oksurf' | 'reddit' | 'rss' | 'wikievents';
+export type ContentSource = 'wikipedia' | 'onthisday' | 'hackernews' | 'oksurf' | 'reddit' | 'wikievents';
 export type ArticleSource = ContentSource; // Alias for backward compatibility
 
 export interface WikipediaArticle {
   pageid: number;
   title: string;
-  extract: string;
+  extract?: string;
   extract_html?: string;
   thumbnail?: {
     source: string;
     width?: number;
     height?: number;
   };
-  originalimage?: WikipediaImage;
   description?: string;
-  url?: string; // For Hacker News articles
+  url?: string;
+  date?: string;
+  source?: ContentSource;
   year?: number; // For On This Day events
-  date?: string; // For On This Day events
-  source?: ContentSource; // Source of the article
-  displaytitle?: string;
-  lastViewedAt?: number;
-  savedAt?: number;
-  viewedAt?: string; // For backward compatibility
+  image?: string; // Alternate image format
+  labels?: string[]; // For topic labels/tags
 }
 
 // App state types
@@ -65,6 +76,10 @@ export interface SavedArticle extends WikipediaArticle {
 
 export interface AppSettings {
   darkMode: boolean;
+  fontSize: number;
+  fontFamily: string;
+  articleHistory: WikipediaArticle[];
+  lastRefreshDate: string;
 }
 
 // View mode type
