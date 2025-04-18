@@ -345,6 +345,9 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
   // Add state for responsive padding
   const [paddingBottom, setPaddingBottom] = useState('calc(1.75rem + 40px)');
   
+  // Preload image state
+  const [preloadedImages, setPreloadedImages] = useState<Set<string>>(new Set());
+  
   // Update padding on window resize - safely check for window
   useEffect(() => {
     // Initialize padding based on client-side window width
@@ -371,6 +374,9 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
   const lastScrollTime = useRef(0);
   const lastScrollDirection = useRef<'up' | 'down' | null>(null);
   
+  // Improved infinite scroll threshold - trigger earlier
+  const infiniteScrollThreshold = 3; // Start loading more articles when 3 articles away from the end
+  
   // Define callback functions for modals that need to be passed to child components
   const handleLockScroll = useCallback(() => {
     lockScroll();
@@ -385,108 +391,130 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
     onIndexChange?.(currentIndex);
   }, [currentIndex, onIndexChange]);
   
-  // Handle scroll to top when clicking the new articles pill
-  const handleNewArticlesPillClick = useCallback(() => {
-    if (onScrollToTop) {
-      onScrollToTop();
+  // Pre-load images for smoother scrolling experience
+  useEffect(() => {
+    // Function to preload an image
+    const preloadImage = (src: string) => {
+      if (!src || preloadedImages.has(src)) return;
+      
+      const img = new Image();
+      img.src = src;
+      
+      // Add to preloaded set when loaded
+      img.onload = () => {
+        setPreloadedImages(prev => {
+          const newSet = new Set(prev);
+          newSet.add(src);
+          return newSet;
+        });
+      };
+    };
+    
+    // Current article's image
+    const currentArt = articles[currentIndex];
+    if (currentArt?.thumbnail?.source) {
+      preloadImage(currentArt.thumbnail.source);
+    }
+    
+    // Preload next 5 articles
+    for (let i = 1; i <= 5; i++) {
+      const index = currentIndex + i;
+      if (index < articles.length && articles[index]?.thumbnail?.source) {
+        preloadImage(articles[index].thumbnail.source);
+      }
+    }
+    
+    // Preload previous 2 articles
+    for (let i = 1; i <= 2; i++) {
+      const index = currentIndex - i;
+      if (index >= 0 && articles[index]?.thumbnail?.source) {
+        preloadImage(articles[index].thumbnail.source);
+      }
+    }
+  }, [currentIndex, articles, preloadedImages]);
+  
+  // Completely redesigned wheel handler for smooth scrolling
+  const handleWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
+    // Prevent default browser scrolling behavior and stop propagation
+    e.preventDefault();
+    e.stopPropagation();
+    
+    // Strict check: Don't process ANY wheel events during navigation or when modals are open
+    if (isNavigationLocked || isOnCooldown || showAboutModal || showLikesModal || showPodcastModal) {
       return;
     }
     
-    // Fallback if onScrollToTop is not provided
-    setIsScrollingToTop(true);
+    // Check if scroll is too rapid - implement smooth scroll throttling
+    const now = Date.now();
+    const scrollDelta = now - lastScrollTime.current;
+    
+    // If scrolled too rapidly, delay processing (better experience on trackpads)
+    if (scrollDelta < 150) {
+      return;
+    }
+    
+    lastScrollTime.current = now;
+    
+    // Immediately set cooldown AND navigation lock to prevent any additional events
+    setIsOnCooldown(true);
     setIsNavigationLocked(true);
     
-    // Smoothly scroll to the top (first article)
-    const scrollToTop = () => {
-      if (currentIndex <= 0) {
-        setCurrentIndex(0);
-        setIsScrollingToTop(false);
-        setIsNavigationLocked(false);
+    // Determine scroll direction
+    const scrollingDown = e.deltaY > 0;
+    const direction = scrollingDown ? 'up' : 'down';
+    lastScrollDirection.current = direction;
+    
+    // Set swipe direction for animations
+    setSwipeDirection(scrollingDown ? 'up' : 'down');
+    
+    // Change the article based on scroll direction - always one article at a time
+    if (scrollingDown) {
+      // Only move one article at a time - go to next
+      if (currentIndex < articles.length - 1) {
+        setCurrentIndex(prev => prev + 1);
+        
+        // Load more articles when getting close to the end - improved threshold for infinite scroll
+        if (currentIndex >= articles.length - infiniteScrollThreshold) {
+          loadMoreArticlesInBackground(10);
+        }
+      } else {
+        // If at end, release locks after delay
+        setTimeout(() => {
+          setIsOnCooldown(false);
+          setIsNavigationLocked(false);
+        }, 300);
         return;
       }
-      
-      // Decrease index by 1 and set up the next step
-      setCurrentIndex(prev => prev - 1);
-      setTimeout(scrollToTop, 150);
-    };
-    
-    scrollToTop();
-  }, [currentIndex, onScrollToTop]);
-  
-  // Apply scroll lock when component mounts, and release when it unmounts
-  useEffect(() => {
-    // Only lock scroll if this component is visible
-    lockScroll();
-    
-    // Clean up and unlock scroll when component unmounts
-    return () => {
-      unlockScroll();
-      
-      // Also clear any timeouts to prevent memory leaks
-      if (scrollTimeoutRef.current) {
-        clearTimeout(scrollTimeoutRef.current);
-        scrollTimeoutRef.current = null;
+    } else {
+      // Only move one article at a time - go to previous
+      if (currentIndex > 0) {
+        setCurrentIndex(prev => prev - 1);
+      } else {
+        // If at beginning, release locks after delay
+        setTimeout(() => {
+          setIsOnCooldown(false);
+          setIsNavigationLocked(false);
+        }, 300);
+        return;
       }
-    };
-  }, [lockScroll, unlockScroll]);
-  
-  // Handle About modal scroll locking
-  useEffect(() => {
-    // Apply scroll lock when About modal opens
-    if (showAboutModal) {
-      lockScroll();
     }
     
-    // Clean up when the modal closes
-    return () => {
-      if (showAboutModal) {
-        unlockScroll();
-      }
-    };
-  }, [showAboutModal, lockScroll, unlockScroll]);
-  
-  // Handle Likes modal scroll locking
-  useEffect(() => {
-    if (showLikesModal) {
-      lockScroll();
-    }
-    
-    return () => {
-      if (showLikesModal) {
-        unlockScroll();
-      }
-    };
-  }, [showLikesModal, lockScroll, unlockScroll]);
-
-  // Handle Podcast modal scroll locking
-  useEffect(() => {
-    if (showPodcastModal) {
-      lockScroll();
-    }
-    
-    return () => {
-      if (showPodcastModal) {
-        unlockScroll();
-      }
-    };
-  }, [showPodcastModal, lockScroll, unlockScroll]);
-  
-  // Always initialize scrollY, even if we don't use it right away
-  const { scrollY } = useScroll({
-    container: containerRef
-  });
-  
-  // Create transform functions but remove scale effects
-  const backgroundY = useTransform(scrollY, [0, 1], [0, 0]); // Remove parallax
-  const titleY = useTransform(scrollY, [0, 1], [0, 0]); // Remove parallax
-  const contentY = useTransform(scrollY, [0, 1], [0, 0]); // Fixed position
-  const prevIndicatorOpacity = useTransform(scrollY, [0, -50], [0, 0.3]);
-  const nextIndicatorOpacity = useTransform(scrollY, [0, 50], [0, 0.3]);
-  // Remove scale transforms
-  const prevIndicatorScale = useTransform(scrollY, [0, 1], [1, 1]);
-  const nextIndicatorScale = useTransform(scrollY, [0, 1], [1, 1]);
-  const backgroundScale = useTransform(scrollY, [0, 1], [1, 1]); // Remove scaling
-  const imageScale = useTransform(scrollY, [0, 1], [1, 1]); // Remove scaling
+    // Smoother animation timing - longer transition time for visual feedback
+    // but shorter wait time before allowing next scroll
+    setTimeout(() => {
+      setIsOnCooldown(false);
+      setIsNavigationLocked(false);
+    }, 400); // Reduced from previous 1000ms for better responsiveness
+  }, [
+    currentIndex, 
+    articles.length, 
+    isNavigationLocked, 
+    isOnCooldown, 
+    showAboutModal, 
+    showLikesModal, 
+    showPodcastModal, 
+    loadMoreArticlesInBackground
+  ]);
   
   // Update current article ref when index or articles change
   useEffect(() => {
@@ -552,69 +580,6 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
       window.removeEventListener('article:unliked', handleUnlikeEvent as EventListener);
     };
   }, []);
-  
-  // Completely redesigned wheel handler to prevent skipping articles
-  const handleWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
-    // Prevent default browser scrolling behavior and stop propagation
-    e.preventDefault();
-    e.stopPropagation();
-    
-    // Strict check: Don't process ANY wheel events during navigation or cooldown
-    if (isNavigationLocked || isOnCooldown || showAboutModal || showLikesModal || showPodcastModal) {
-      return;
-    }
-    
-    // Immediately set cooldown AND navigation lock to prevent any additional events
-    setIsOnCooldown(true);
-    setIsNavigationLocked(true);
-    
-    // Determine scroll direction
-    const scrollingDown = e.deltaY > 0;
-    const direction = scrollingDown ? 'up' : 'down';
-    lastScrollDirection.current = direction;
-    
-    // Set swipe direction for animations
-    setSwipeDirection(scrollingDown ? 'up' : 'down');
-    
-    // Change the article based on scroll direction - always one article at a time
-    if (scrollingDown) {
-      // Only move one article at a time - go to next
-      if (currentIndex < articles.length - 1) {
-        setCurrentIndex(prev => prev + 1);
-        
-        // Load more articles when getting close to the end
-        if (currentIndex >= articles.length - 5) {
-          loadMoreArticlesInBackground(10);
-        }
-      } else {
-        // If at end, release locks after delay
-        setTimeout(() => {
-          setIsOnCooldown(false);
-          setIsNavigationLocked(false);
-        }, 300);
-        return;
-      }
-    } else {
-      // Only move one article at a time - go to previous
-      if (currentIndex > 0) {
-        setCurrentIndex(prev => prev - 1);
-      } else {
-        // If at beginning, release locks after delay
-        setTimeout(() => {
-          setIsOnCooldown(false);
-          setIsNavigationLocked(false);
-        }, 300);
-        return;
-      }
-    }
-    
-    // Reset the cooldown and navigation lock after animation completes
-    // Use a longer timeout to ensure animation is complete
-    setTimeout(() => {
-      setIsOnCooldown(false);
-      setIsNavigationLocked(false);
-    }, 1200);
-  }, [currentIndex, articles, showAboutModal, showLikesModal, showPodcastModal, isNavigationLocked, isOnCooldown, loadMoreArticlesInBackground]);
   
   // Toggle like (save) for the article
   const handleLike = useCallback(() => {
@@ -772,30 +737,30 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
     }
   };
   
-  // Update the animation variants for the article transitions
+  // Update the animation variants for smoother transitions
   const articleVariants = {
     initial: (direction: SwipeDirection) => ({
-      y: direction === 'up' ? 50 : -50,
+      y: direction === 'up' ? 40 : -40, // Reduced distance for smoother feel
       opacity: 0,
     }),
     animate: {
       y: 0,
       opacity: 1,
-      transition: { duration: 0.3, ease: "easeOut" }
+      transition: { duration: 0.4, ease: "easeOut" } // Slightly longer for smoothness
     },
     exit: (direction: SwipeDirection) => ({
-      y: direction === 'up' ? -50 : 50,
+      y: direction === 'up' ? -40 : 40, // Reduced distance for smoother feel
       opacity: 0,
-      transition: { duration: 0.2, ease: "easeIn" }
+      transition: { duration: 0.3, ease: "easeIn" } // Slightly longer for smoothness
     })
   };
   
   // Filter out articles without thumbnails - skip articles with no images
   useEffect(() => {
-    if (articles.length > 0 && currentArticle && !currentArticle.thumbnail?.source) {
-      // If current article has no image, find the next one with an image
+    if (articles.length > 0 && currentArticle && !currentArticle.thumbnail?.source && currentArticle.source !== 'onthisday') {
+      // If current article has no image (except onthisday), find the next one with an image
       const nextArticleWithImage = articles.findIndex((article, index) => 
-        index > currentIndex && article.thumbnail?.source
+        index > currentIndex && (article.thumbnail?.source || article.source === 'onthisday')
       );
       
       if (nextArticleWithImage !== -1) {
@@ -803,7 +768,7 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
       } else {
         // If no articles with images ahead, look behind
         const prevArticleWithImage = [...articles].reverse().findIndex((article, idx) => 
-          (articles.length - 1 - idx) < currentIndex && article.thumbnail?.source
+          (articles.length - 1 - idx) < currentIndex && (article.thumbnail?.source || article.source === 'onthisday')
         );
         
         if (prevArticleWithImage !== -1) {
@@ -813,7 +778,7 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
     }
   }, [currentIndex, articles, currentArticle]);
   
-  // Handle double tap to like
+  // Handle double tap to like (but no longer for navigation)
   const handleTap = () => {
     const now = Date.now();
     const DOUBLE_TAP_DELAY = 300; // ms
@@ -1011,7 +976,6 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
             animate="animate"
             exit="exit"
             custom={swipeDirection}
-            onClick={handleTap}
           >
             {/* Background image - simplified to show just one image */}
             <motion.div 
@@ -1200,6 +1164,12 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
                 </div>
               </div>
             </motion.div>
+            
+            {/* Double tap area specifically for liking (smaller target) */}
+            <div 
+              className="absolute top-1/2 right-6 w-16 h-16 z-20"
+              onClick={handleTap}
+            />
           </motion.div>
         )}
       </AnimatePresence>
