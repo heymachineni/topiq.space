@@ -14,22 +14,21 @@ import {
   getViewedArticles, 
   markArticleAsViewed 
 } from '../utils/storage';
-import axios from 'axios';
 
 // Batching configuration
 const REFRESH_INTERVAL = 2 * 60 * 60 * 1000; // Refresh every 2 hours
 const BATCH_SIZE = 20; // Number of articles to fetch in each batch
 const MAX_CACHED_ARTICLES = 100; // Maximum number of articles to keep in cache
 
-// Configure the weight/distribution of sources
-const sourceWeights = {
-  'wikipedia': { weight: 30 },   // 30% Wikipedia
-  'rss': { weight: 20 },         // 20% RSS Feeds
-  'hackernews': { weight: 15 },  // 15% Hacker News
-  'onthisday': { weight: 5 },   // 15% On This Day
-  'oksurf': { weight: 10 },      // 10% OK.Surf
-  'reddit': { weight: 10 },       // 5% Reddit
-  'wikievents': { weight: 10 }    // 5% Wikipedia events
+// Source distribution for a balanced content mix
+const SOURCES_CONFIG: Record<ContentSource, { weight: number }> = {
+  'wikipedia': { weight: 20 },    // 20% Wikipedia
+  'wikievents': { weight: 20 },   // 20% Wikipedia Current Events
+  'rss': { weight: 20 },          // 20% RSS Feeds
+  'reddit': { weight: 20 },       // 20% Reddit
+  'onthisday': { weight: 10 },    // 10% On This Day
+  'oksurf': { weight: 10 },       // 10% OK Surf
+  'hackernews': { weight: 0 }     // 0% Hacker News (keeping for backward compatibility)
 };
 
 // Helper to get a random integer in a range
@@ -46,28 +45,17 @@ export const useWikipediaArticles = (initialCount: number = 10) => {
   const lastRefreshTime = useRef<number>(0);
   const viewedArticleIds = useRef<Set<number>>(new Set());
   
-  // Default state for source counts
-  const [sourceCountsState, setSourceCountsState] = useState<Record<ContentSource, number>>({
+  // Keep track of distribution across sources
+  const [sourceDistribution, setSourceDistribution] = useState<Record<ContentSource, number>>({
     wikipedia: 0,
+    wikievents: 0,
     rss: 0,
-    hackernews: 0,
+    reddit: 0,
     onthisday: 0,
     oksurf: 0,
-    reddit: 0,
-    wikievents: 0
+    hackernews: 0
   });
   
-  // All-time counts since app start
-  const [allSourceCountsState, setAllSourceCountsState] = useState<Record<ContentSource, number>>({
-    wikipedia: 0,
-    rss: 0,
-    hackernews: 0,
-    onthisday: 0,
-    oksurf: 0,
-    reddit: 0,
-    wikievents: 0
-  });
-
   // Update source counts in distribution
   const updateSourceCounts = useCallback((articleList: WikipediaArticle[]) => {
     const counts: Record<ContentSource, number> = {
@@ -77,7 +65,7 @@ export const useWikipediaArticles = (initialCount: number = 10) => {
       reddit: 0,
       onthisday: 0,
       oksurf: 0,
-      hackernews: 0,
+      hackernews: 0
     };
     
     articleList.forEach(article => {
@@ -85,8 +73,7 @@ export const useWikipediaArticles = (initialCount: number = 10) => {
       counts[source] = (counts[source] || 0) + 1;
     });
     
-    setSourceCountsState(counts);
-    setAllSourceCountsState(prev => ({ ...prev, ...counts }));
+    setSourceDistribution(counts);
   }, []);
 
   // Fetch fresh articles from all sources
@@ -102,13 +89,13 @@ export const useWikipediaArticles = (initialCount: number = 10) => {
       
       // Calculate how many articles to request from each source based on weights
       const sourceRequests: Partial<Record<ContentSource, number>> = {};
-      const totalWeight = Object.values(sourceWeights).reduce((sum, config) => sum + config.weight, 0);
+      const totalWeight = Object.values(SOURCES_CONFIG).reduce((sum, config) => sum + config.weight, 0);
       
       let remainingCount = count;
       
       // Distribute the count across sources based on weights
-      for (const source of Object.keys(sourceWeights) as ContentSource[]) {
-        const weight = sourceWeights[source].weight;
+      for (const source of Object.keys(SOURCES_CONFIG) as ContentSource[]) {
+        const weight = SOURCES_CONFIG[source].weight;
         const sourceCount = Math.round((weight / totalWeight) * count);
         sourceRequests[source] = sourceCount;
         remainingCount -= sourceCount;
@@ -177,39 +164,7 @@ export const useWikipediaArticles = (initialCount: number = 10) => {
       setLoading(true);
       
       try {
-        let initialArticles: WikipediaArticle[] = [];
-        
-        // Try to load from static data first
-        try {
-          const staticResponse = await axios.get('/data/wiki.json');
-          const staticData = staticResponse.data;
-          if (staticData && staticData.articles && staticData.articles.length > 0) {
-            console.log(`Loaded ${staticData.articles.length} articles from static data`);
-            initialArticles = staticData.articles;
-            
-            // Set articles immediately from static data
-            setArticles(initialArticles.slice(0, initialCount));
-            setLoading(false);
-            setInitialLoadComplete(true);
-            
-            // Save to cache
-            saveArticlesToCache(initialArticles);
-            
-            // Update source counts
-            updateSourceCounts(initialArticles);
-            
-            // In the background, start fetching more articles
-            setTimeout(() => {
-              loadMoreArticlesInBackground(BATCH_SIZE);
-            }, 5000); // Wait 5 seconds before starting background fetch
-            
-            return; // Exit early since we have static data
-          }
-        } catch (staticError) {
-          console.log('Static data not available, falling back to cache and API');
-        }
-        
-        // Try to load cached articles
+        // Try to load cached articles first
         let cachedArticles = loadArticlesFromCache();
         
         // Check if we need to refresh the cache
@@ -239,12 +194,10 @@ export const useWikipediaArticles = (initialCount: number = 10) => {
         // Use cached articles for initial display
         if (cachedArticles.length > 0) {
           setArticles(cachedArticles.slice(0, initialCount));
-          updateSourceCounts(cachedArticles);
         } else {
           // Fallback to direct fetch if cache is empty
           const directArticles = await fetchFreshArticles(initialCount);
           setArticles(directArticles);
-          updateSourceCounts(directArticles);
         }
       } catch (err) {
         console.error('Error initializing articles:', err);
@@ -256,7 +209,7 @@ export const useWikipediaArticles = (initialCount: number = 10) => {
     };
     
     initializeArticles();
-  }, [initialCount, fetchFreshArticles, loadArticlesFromCache, saveArticlesToCache, updateSourceCounts]);
+  }, [initialCount, fetchFreshArticles, loadArticlesFromCache, saveArticlesToCache]);
 
   // Refresh articles with new content
   const refreshArticles = useCallback(async () => {

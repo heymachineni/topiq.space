@@ -70,7 +70,7 @@ export interface AppSettings {
 // View mode type
 export type ViewMode = 'fullscreen' | 'grid' | 'stack';
 
-// Media types for related content
+// Media types for Wikimedia Commons and NASA integration
 export interface MediaContent {
   title: string;
   description: string;
@@ -81,6 +81,12 @@ export interface MediaContent {
   author?: string;
   dateCreated?: string;
   source: 'wikimedia' | 'nasa' | 'other';
+}
+
+export interface MediaGalleryProps {
+  media: MediaContent[];
+  onClose: () => void;
+  isOpen: boolean;
 }
 
 // Component props types

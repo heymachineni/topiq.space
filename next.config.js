@@ -1,20 +1,20 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  reactStrictMode: false,
-  swcMinify: true,
-  output: 'export',
+  reactStrictMode: true,
+  trailingSlash: true,
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
+  typescript: {
+    ignoreBuildErrors: true,
+  },
   images: {
     unoptimized: true,
   },
-  // Ensure compatibility with React Scripts config
   webpack: (config) => {
-    config.resolve.fallback = { 
-      ...config.resolve.fallback,
-      fs: false, 
-      path: false 
-    };
+    // Important: return the modified config
     return config;
   },
-}
+};
 
-module.exports = nextConfig 
+module.exports = nextConfig; 

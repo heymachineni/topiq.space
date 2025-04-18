@@ -10,13 +10,6 @@ Explore Knowledge, News, Trends & Podcasts
 - Framer Motion for animations and gesture handling
 - Wikipedia API for content
 
-## Features
-
-- Intuitive full-screen article browsing with smooth transitions
-- Multi-source content from Wikipedia, Hacker News, Reddit, and RSS feeds
-- Podcast integration with playback controls
-- Mobile-optimized design with touch gestures
-
 ## Getting Started
 
 1. Clone the repository

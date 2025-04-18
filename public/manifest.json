@@ -1,7 +1,6 @@
 {
   "short_name": "topiq.space",
-  "name": "topiq.space — Explore Knowledge, News, Trends & Podcasts",
-  "description": "Explore the world with topiq — a modern way to learn, stay updated, and get inspired.",
+  "name": "topiq.space - Explore Knowledge, News, Trends & Podcasts",
   "icons": [
     {
       "src": "favicon.ico",
@@ -22,5 +21,5 @@
   "start_url": ".",
   "display": "standalone",
   "theme_color": "#000000",
-  "background_color": "#000000"
+  "background_color": "#ffffff"
 } 

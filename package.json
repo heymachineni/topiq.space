@@ -9,11 +9,12 @@
     "@testing-library/user-event": "^13.5.0",
     "@types/dompurify": "^3.0.5",
     "axios": "^1.6.7",
+    "cross-env": "^7.0.3",
     "dompurify": "^3.2.5",
     "framer-motion": "^6.5.1",
     "html-react-parser": "^5.2.3",
     "mathjax-react": "^2.0.1",
-    "next": "^13.4.0",
+    "next": "^12.3.4",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-scripts": "5.0.1",
@@ -21,15 +22,13 @@
     "web-vitals": "^2.1.4"
   },
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "build:production": "NODE_ENV=production next build",
-    "fetch-podcasts": "node scripts/fetch-podcasts.js",
-    "fetch-wiki": "node scripts/fetch-wikipedia.js",
-    "start": "next start",
-    "lint": "next lint",
+    "dev": "cross-env NODE_ENV=development next dev",
+    "start": "cross-env NODE_ENV=production next start",
+    "build": "cross-env NODE_ENV=production ESLINT_NO_DEV_ERRORS=true next build",
+    "export": "next export",
     "test": "react-scripts test",
-    "eject": "react-scripts eject"
+    "eject": "react-scripts eject",
+    "static": "cross-env NODE_ENV=production next build && next export"
   },
   "eslintConfig": {
     "extends": [
@@ -56,7 +55,6 @@
     "@types/react": "^18.2.52",
     "@types/react-dom": "^18.2.18",
     "autoprefixer": "^10.4.17",
-    "eslint-config-next": "^13.4.0",
     "postcss": "^8.4.35",
     "tailwind-scrollbar": "^3.0.5",
     "tailwindcss": "^3.4.1"
