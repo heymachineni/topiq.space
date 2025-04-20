@@ -84,7 +84,16 @@ const PodcastView: React.FC<PodcastViewProps> = ({ onRefresh, tabNavigator, onPl
     // First load original trending podcasts
     try {
       const trendingPodcasts = await onRefresh();
-      setAllPodcasts(trendingPodcasts);
+      
+      // Filter out Lex Fridman, Joe Rogan, and Huberman Lab podcasts from mixed category
+      const filteredPodcasts = trendingPodcasts.filter(podcast => {
+        const podcastTitle = podcast.feedTitle?.toLowerCase() || '';
+        return !podcastTitle.includes('lex fridman') && 
+               !podcastTitle.includes('joe rogan') && 
+               !podcastTitle.includes('huberman lab');
+      });
+      
+      setAllPodcasts(filteredPodcasts);
       
       // Trending podcasts will only show in Mixed section now
     } catch (error) {
@@ -128,50 +137,28 @@ const PodcastView: React.FC<PodcastViewProps> = ({ onRefresh, tabNavigator, onPl
     );
   };
   
-  // Load famous podcaster episodes
-  const loadFamousPodcaster = async (podcasterId: string, searchTerm: string) => {
-    try {
-      const response = await fetch(
-        `https://itunes.apple.com/search?term=${encodeURIComponent(searchTerm)}&entity=podcast&limit=1`
-      );
-      const data = await response.json();
-      
-      if (data.results.length > 0) {
-        const podcastId = data.results[0].collectionId;
-        
-        // Get episodes from the podcast
-        const episodesResponse = await fetch(
-          `https://itunes.apple.com/lookup?id=${podcastId}&entity=podcastEpisode&limit=20`
-        );
-        const episodesData = await episodesResponse.json();
-        
-        // Transform to our format - skip the first result as it's the podcast itself
-        const episodes: PodcastEpisode[] = episodesData.results
-          .slice(1) // Skip the podcast entry, get only episodes
-          .map((item: any) => ({
-            id: item.trackId,
-            title: item.trackName,
-            description: item.description || '',
-            url: item.trackViewUrl,
-            datePublished: new Date(item.releaseDate).toLocaleDateString(),
-            duration: item.trackTimeMillis ? Math.floor(item.trackTimeMillis / 1000) : '',
-            image: item.artworkUrl600 || item.artworkUrl100,
-            feedTitle: data.results[0].collectionName,
-            feedUrl: item.feedUrl || '',
-            audio: item.previewUrl || ''
-          }));
-        
-        updateFamousPodcasterPodcasts(podcasterId, episodes);
-      }
-    } catch (error) {
-      console.error(`Error loading ${podcasterId} podcasts:`, error);
-      updateFamousPodcasterPodcasts(podcasterId, []);
-    }
-  };
-  
   // Load category podcasts
   const loadCategoryPodcasts = async (categoryId: string, searchTerm: string) => {
     try {
+      // Create static data for local development
+      const podcastCount = Math.floor(Math.random() * 6) + 5; // 5-10 podcasts
+      const podcasts: PodcastEpisode[] = Array(podcastCount).fill(null).map((_, index) => ({
+        id: Math.floor(Math.random() * 100000) + 1000 + index,
+        title: `${searchTerm.charAt(0).toUpperCase() + searchTerm.slice(1)} Podcast ${index + 1}`,
+        description: `This is a sample ${searchTerm} podcast episode with interesting content.`,
+        url: "https://example.com/podcast",
+        datePublished: new Date().toLocaleDateString(),
+        duration: `${Math.floor(Math.random() * 60) + 10}:00`,
+        image: `https://source.unsplash.com/random/400x400?${searchTerm},podcast&sig=${categoryId}${index}`,
+        feedTitle: `${searchTerm.charAt(0).toUpperCase() + searchTerm.slice(1)} Network`,
+        feedUrl: "https://example.com/feed",
+        feedImage: `https://source.unsplash.com/random/100x100?${searchTerm},logo&sig=${categoryId}`,
+        audio: "https://rss.art19.com/episodes/01a3a482-c8e0-4bf6-b0af-f002f0a3a86a.mp3" // Sample audio URL
+      }));
+      
+      updateCategoryPodcasts(categoryId, podcasts);
+      
+      /* Original API implementation commented out
       const genreParam = 
         categoryId === 'musicallyInclined' ? '&genreId=1310' : 
         categoryId === 'topCharts' ? '&genreId=26' : '';
@@ -229,9 +216,73 @@ const PodcastView: React.FC<PodcastViewProps> = ({ onRefresh, tabNavigator, onPl
         
         updateCategoryPodcasts(categoryId, podcasts);
       }
+      */
     } catch (error) {
       console.error(`Error loading ${categoryId} podcasts:`, error);
       updateCategoryPodcasts(categoryId, []);
+    }
+  };
+  
+  // Load famous podcaster episodes
+  const loadFamousPodcaster = async (podcasterId: string, searchTerm: string) => {
+    try {
+      // Create static data for famous podcasters
+      const episodeCount = Math.floor(Math.random() * 6) + 15; // 15-20 episodes
+      const podcasterName = searchTerm.split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+      
+      const episodes: PodcastEpisode[] = Array(episodeCount).fill(null).map((_, index) => ({
+        id: Math.floor(Math.random() * 100000) + 2000 + index,
+        title: `${podcasterName} #${episodeCount - index}: ${['AI', 'Science', 'Philosophy', 'Tech', 'History'][Math.floor(Math.random() * 5)]} Discussion`,
+        description: `${podcasterName} discusses fascinating topics with a special guest in this episode.`,
+        url: "https://example.com/podcast",
+        datePublished: new Date(Date.now() - index * 7 * 24 * 60 * 60 * 1000).toLocaleDateString(), // Each episode a week apart
+        duration: `${Math.floor(Math.random() * 120) + 40}:00`, // 40-160 minutes
+        image: `https://source.unsplash.com/random/400x400?${searchTerm},podcast&sig=${podcasterId}`,
+        feedTitle: `The ${podcasterName} Podcast`,
+        feedUrl: "https://example.com/feed",
+        feedImage: `https://source.unsplash.com/random/100x100?${searchTerm},logo&sig=${podcasterId}`,
+        audio: "https://rss.art19.com/episodes/01a3a482-c8e0-4bf6-b0af-f002f0a3a86a.mp3" // Sample audio URL
+      }));
+      
+      updateFamousPodcasterPodcasts(podcasterId, episodes);
+      
+      /* Original API implementation commented out
+      const response = await fetch(
+        `https://itunes.apple.com/search?term=${encodeURIComponent(searchTerm)}&entity=podcast&limit=1`
+      );
+      const data = await response.json();
+      
+      if (data.results.length > 0) {
+        const podcastId = data.results[0].collectionId;
+        
+        // Get episodes from the podcast
+        const episodesResponse = await fetch(
+          `https://itunes.apple.com/lookup?id=${podcastId}&entity=podcastEpisode&limit=20`
+        );
+        const episodesData = await episodesResponse.json();
+        
+        // Transform to our format - skip the first result as it's the podcast itself
+        const episodes: PodcastEpisode[] = episodesData.results
+          .slice(1) // Skip the podcast entry, get only episodes
+          .map((item: any) => ({
+            id: item.trackId,
+            title: item.trackName,
+            description: item.description || '',
+            url: item.trackViewUrl,
+            datePublished: new Date(item.releaseDate).toLocaleDateString(),
+            duration: item.trackTimeMillis ? Math.floor(item.trackTimeMillis / 1000) : '',
+            image: item.artworkUrl600 || item.artworkUrl100,
+            feedTitle: data.results[0].collectionName,
+            feedUrl: item.feedUrl || '',
+            audio: item.previewUrl || ''
+          }));
+        
+        updateFamousPodcasterPodcasts(podcasterId, episodes);
+      }
+      */
+    } catch (error) {
+      console.error(`Error loading ${podcasterId} podcasts:`, error);
+      updateFamousPodcasterPodcasts(podcasterId, []);
     }
   };
   
@@ -263,15 +314,24 @@ const PodcastView: React.FC<PodcastViewProps> = ({ onRefresh, tabNavigator, onPl
         // Filter out duplicates from new podcasts
         const newPodcasts = morePodcasts.filter(p => !existingIds.has(p.id));
         
-        console.log(`Loaded ${morePodcasts.length} podcasts, ${newPodcasts.length} are new`);
+        // Filter out Lex Fridman, Joe Rogan, and Huberman Lab podcasts from mixed category
+        const filteredPodcasts = newPodcasts.filter(podcast => {
+          // Check if the podcast's feedTitle contains any of the excluded podcaster names
+          const podcastTitle = podcast.feedTitle?.toLowerCase() || '';
+          return !podcastTitle.includes('lex fridman') && 
+                 !podcastTitle.includes('joe rogan') && 
+                 !podcastTitle.includes('huberman lab');
+        });
+        
+        console.log(`Loaded ${morePodcasts.length} podcasts, ${filteredPodcasts.length} are new (after filtering)`);
         
         // If no new podcasts were returned, we've reached the end
-        if (newPodcasts.length === 0) {
+        if (filteredPodcasts.length === 0) {
           setAllLoaded(true);
           console.log('All podcasts loaded, no more to fetch');
         }
         
-        return [...prev, ...newPodcasts];
+        return [...prev, ...filteredPodcasts];
       });
     } catch (error) {
       console.error('Error loading more podcasts:', error);
