@@ -6,7 +6,8 @@ import {
   fetchHackerNewsStories, 
   fetchOnThisDayEvents, 
   fetchOkSurfNews,
-  clearArticleCaches
+  clearArticleCaches,
+  optimizeArticleImagesArray
 } from '../utils/api';
 import { 
   getSavedArticles, 
@@ -33,6 +34,53 @@ const SOURCES_CONFIG: Record<ContentSource, { weight: number }> = {
 // Helper to get a random integer in a range
 const getRandomInt = (min: number, max: number) => {
   return Math.floor(Math.random() * (max - min + 1)) + min;
+};
+
+// Function to fetch fresh articles using the direct API approach
+const fetchFreshArticles = async (
+  count: number, 
+  setIsLoading: React.Dispatch<React.SetStateAction<boolean>>,
+  searchQuery?: string
+): Promise<WikipediaArticle[]> => {
+  setIsLoading(true);
+  
+  try {
+    // Generate a varied set of search queries if none provided
+    const queries = searchQuery ? 
+      [searchQuery] : 
+      ['science', 'history', 'technology', 'art', 'nature', 'space', 'culture'];
+    
+    // Select a random query if searchQuery not provided
+    const query = searchQuery || queries[Math.floor(Math.random() * queries.length)];
+    
+    // Default distribution with Wikipedia as the main source
+    const sourceDistribution: Partial<Record<ContentSource, number>> = {
+      wikipedia: count * 0.5,
+      wikievents: count * 0.1,
+      hackernews: count * 0.1,
+      reddit: count * 0.1,
+      onthisday: count * 0.1,
+      oksurf: count * 0.1
+    };
+    
+    // Fetch the articles using our new direct API approach
+    const articles = await fetchMultiSourceArticles(sourceDistribution, query);
+    
+    // Optimize the images
+    const optimizedArticles = optimizeArticleImagesArray(articles);
+    
+    return optimizedArticles;
+  } catch (error) {
+    console.error('Error fetching fresh articles:', error);
+    return [];
+  } finally {
+    setIsLoading(false);
+  }
+};
+
+// Check seen articles to avoid duplicates
+const filterOutSeenArticles = (newArticles: WikipediaArticle[], seenArticles: Set<number>): WikipediaArticle[] => {
+  return newArticles.filter(article => !seenArticles.has(article.pageid));
 };
 
 export const useWikipediaArticles = (initialCount: number = 10) => {
@@ -73,75 +121,6 @@ export const useWikipediaArticles = (initialCount: number = 10) => {
     setSourceDistribution(counts);
   }, []);
 
-  // Fetch fresh articles from all sources
-  const fetchFreshArticles = useCallback(async (count: number) => {
-    try {
-      setError(null);
-      
-      // Get previously viewed article IDs - but don't filter them out completely
-      const viewedArticles = getViewedArticles();
-      // Convert to array of numbers
-      const viewedIdNumbers = viewedArticles.map(article => article.pageid);
-      viewedArticleIds.current = new Set(viewedIdNumbers);
-      
-      // Calculate how many articles to request from each source based on weights
-      const sourceRequests: Partial<Record<ContentSource, number>> = {};
-      const totalWeight = Object.values(SOURCES_CONFIG).reduce((sum, config) => sum + config.weight, 0);
-      
-      let remainingCount = count;
-      
-      // Distribute the count across sources based on weights
-      for (const source of Object.keys(SOURCES_CONFIG) as ContentSource[]) {
-        const weight = SOURCES_CONFIG[source].weight;
-        const sourceCount = Math.round((weight / totalWeight) * count);
-        sourceRequests[source] = sourceCount;
-        remainingCount -= sourceCount;
-      }
-      
-      // Adjust for rounding errors
-      if (remainingCount > 0) {
-        sourceRequests.wikipedia = (sourceRequests.wikipedia || 0) + remainingCount;
-      } else if (remainingCount < 0) {
-        sourceRequests.wikipedia = Math.max(1, (sourceRequests.wikipedia || 0) + remainingCount);
-      }
-      
-      // Fetch articles from multiple sources - pass the viewed IDs but don't filter
-      const freshArticles = await fetchMultiSourceArticles(sourceRequests);
-      
-      // Filter out articles without titles
-      const validArticles = freshArticles.filter(article => 
-        article.title && article.title.trim() !== ''
-      );
-      
-      // Sort articles - new ones first, then already viewed ones
-      const sortedArticles = validArticles.sort((a, b) => {
-        const aViewed = a.pageid ? viewedArticleIds.current.has(a.pageid) : false;
-        const bViewed = b.pageid ? viewedArticleIds.current.has(b.pageid) : false;
-        
-        if (aViewed && !bViewed) return 1; // a is viewed, b is not, so b comes first
-        if (!aViewed && bViewed) return -1; // a is not viewed, b is viewed, so a comes first
-        return 0; // no change in order
-      });
-      
-      // Mark these articles as viewed
-      sortedArticles.forEach(article => {
-        if (article.pageid) {
-          viewedArticleIds.current.add(article.pageid);
-          markArticleAsViewed(article);
-        }
-      });
-      
-      // Update the last refresh time
-      lastRefreshTime.current = Date.now();
-      
-      return sortedArticles;
-    } catch (err) {
-      console.error('Error fetching fresh articles:', err);
-      setError('Failed to fetch articles. Please try again later.');
-      return [];
-    }
-  }, []);
-
   // Save articles to cache
   const saveArticlesToCache = useCallback((articleList: WikipediaArticle[]) => {
     // Save each article individually
@@ -172,7 +151,7 @@ export const useWikipediaArticles = (initialCount: number = 10) => {
         
         if (needsRefresh) {
           // Fetch fresh articles if needed
-          const freshArticles = await fetchFreshArticles(BATCH_SIZE);
+          const freshArticles = await fetchFreshArticles(BATCH_SIZE, setLoading);
           
           if (freshArticles.length > 0) {
             // Combine fresh articles with existing cache
@@ -193,7 +172,7 @@ export const useWikipediaArticles = (initialCount: number = 10) => {
           setArticles(cachedArticles.slice(0, initialCount));
         } else {
           // Fallback to direct fetch if cache is empty
-          const directArticles = await fetchFreshArticles(initialCount);
+          const directArticles = await fetchFreshArticles(initialCount, setLoading);
           setArticles(directArticles);
         }
       } catch (err) {
@@ -208,199 +187,80 @@ export const useWikipediaArticles = (initialCount: number = 10) => {
     initializeArticles();
   }, [initialCount, fetchFreshArticles, loadArticlesFromCache, saveArticlesToCache]);
 
-  // Refresh articles with new content
-  const refreshArticles = useCallback(async () => {
+  // Refresh articles - modify to use seen articles tracking
+  const refreshArticles = async () => {
     setLoading(true);
+    setError('');
     
     try {
-      // Clear existing caches to start fresh
-      clearArticleCaches();
+      // Track seen article IDs to avoid repeats
+      const seenArticleIds = new Set<number>();
       
-      // Fetch fresh articles
-      const freshArticles = await fetchFreshArticles(BATCH_SIZE);
+      // Add current articles to seen set
+      articles.forEach(article => {
+        seenArticleIds.add(article.pageid);
+      });
       
-      if (freshArticles.length > 0) {
-        // Log the source distribution of fetched articles
-        const sourceCounts = freshArticles.reduce((acc, article) => {
-          const source = article.source || 'wikipedia';
-          acc[source] = (acc[source] || 0) + 1;
-          return acc;
-        }, {} as Record<ContentSource, number>);
-        console.log('Source distribution of refreshed articles:', sourceCounts);
-        
-        setArticles(freshArticles);
-        saveArticlesToCache(freshArticles);
-      } else {
-        setError('No articles found. Please try again.');
-      }
-    } catch (err) {
-      console.error('Error refreshing articles:', err);
-      setError('Failed to refresh articles. Please try again later.');
+      // Fetch new articles and filter out any we've already seen
+      const freshArticles = await fetchFreshArticles(30, setLoading);
+      const uniqueArticles = filterOutSeenArticles(freshArticles, seenArticleIds);
+      
+      // Save to cache and update state with unique articles
+      saveArticlesToCache(uniqueArticles);
+      setArticles(uniqueArticles);
+      
+    } catch (error) {
+      console.error('Error refreshing articles:', error);
+      setError('Failed to refresh articles. Please try again.');
     } finally {
       setLoading(false);
     }
-  }, [fetchFreshArticles, saveArticlesToCache]);
+  };
 
-  // Load more articles in the background
-  const loadMoreArticlesInBackground = useCallback(async (count: number = BATCH_SIZE) => {
-    // Don't fetch more while already loading
-    if (isLoadingBackground) return;
+  // Load more articles in the background - modify to check for duplicates
+  const loadMoreArticlesInBackground = async (count: number = 10) => {
+    if (isLoadingBackground) return; // Prevent concurrent loads
     
     setIsLoadingBackground(true);
-    console.log(`Loading ${count} more articles in background...`);
     
     try {
-      // Increase the request count to ensure we get enough valid articles after filtering
-      const requestCount = count * 3; // Increased multiplier from 2 to 3
+      // Track seen article IDs to avoid repeats
+      const seenArticleIds = new Set<number>();
       
-      // Fetch more articles directly
-      const freshArticles = await fetchFreshArticles(requestCount);
+      // Add current articles to seen set
+      articles.forEach(article => {
+        seenArticleIds.add(article.pageid);
+      });
       
-      // Get cached articles to avoid exact duplicates
-      const cachedArticles = loadArticlesFromCache();
-      const cachedIds = new Set(cachedArticles.map(a => a.pageid));
-      const currentIds = new Set(articles.map(a => a.pageid));
+      // Use a random search query for variety
+      const queries = ['science', 'history', 'technology', 'art', 'nature', 'space', 'culture'];
+      const randomQuery = queries[Math.floor(Math.random() * queries.length)];
       
-      // More aggressive filtering:
-      // 1. No duplicates
-      // 2. Must have a valid title
-      // 3. Must have a thumbnail/image (except 'onthisday' which may not have images)
-      // 4. Prioritize unviewed articles
-      const uniqueNewArticles = freshArticles.filter(article => 
-        !cachedIds.has(article.pageid) && 
-        !currentIds.has(article.pageid) &&
-        article.title && 
-        article.title.trim() !== '' &&
-        (article.thumbnail?.source || article.source === 'onthisday')
-      );
+      // Fetch with the direct API and filter out seen articles
+      const newArticles = await fetchFreshArticles(count + 10, () => {}, randomQuery);
+      const uniqueArticles = filterOutSeenArticles(newArticles, seenArticleIds);
       
-      console.log(`Filtered ${freshArticles.length} articles down to ${uniqueNewArticles.length} unique ones with images`);
-      
-      if (uniqueNewArticles.length === 0) {
-        console.log("No new unique articles with images found, trying again with different sources");
-        // If we didn't get any valid articles, try with a different source distribution
-        const alternateSourceRequest: Partial<Record<ContentSource, number>> = {
-          wikipedia: Math.floor(requestCount * 0.5), // Increased Wikipedia proportion
-          reddit: Math.floor(requestCount * 0.3),
-          hackernews: Math.floor(requestCount * 0.15),
-          onthisday: Math.floor(requestCount * 0.05)
-        };
+      // Only append if we got unique articles
+      if (uniqueArticles.length > 0) {
+        setArticles(prev => [...prev, ...uniqueArticles.slice(0, count)]);
         
-        // Try a broader search with alternative sources
-        const alternateArticles = await fetchMultiSourceArticles(alternateSourceRequest);
-        // Apply the same filtering
-        const uniqueAlternateArticles = alternateArticles.filter(article => 
-          !cachedIds.has(article.pageid) && 
-          !currentIds.has(article.pageid) &&
-          article.title && 
-          article.title.trim() !== '' &&
-          (article.thumbnail?.source || article.source === 'onthisday')
-        );
-        
-        if (uniqueAlternateArticles.length > 0) {
-          // Sort so unviewed articles come first
-          const sortedNewArticles = uniqueAlternateArticles.sort((a, b) => {
-            const aViewed = a.pageid ? viewedArticleIds.current.has(a.pageid) : false;
-            const bViewed = b.pageid ? viewedArticleIds.current.has(b.pageid) : false;
-            
-            if (aViewed && !bViewed) return 1; 
-            if (!aViewed && bViewed) return -1;
-            return 0;
-          });
-          
-          // Mark new articles as viewed
-          sortedNewArticles.forEach(article => {
-            if (article.pageid) {
-              viewedArticleIds.current.add(article.pageid);
-              markArticleAsViewed(article);
-            }
-          });
-          
-          console.log(`Adding ${sortedNewArticles.length} alternate articles to feed`);
-          
-          // Update state and cache
-          setArticles(prev => [...prev, ...sortedNewArticles]);
-          const allArticles = [...cachedArticles, ...sortedNewArticles];
-          saveArticlesToCache(allArticles.slice(0, MAX_CACHED_ARTICLES));
-        } else {
-          console.log("Still couldn't find any valid articles, trying with larger batch size");
-          
-          // Make one final attempt with an even larger batch and more sources
-          const lastAttemptRequest: Partial<Record<ContentSource, number>> = {
-            wikipedia: Math.floor(requestCount * 0.6),
-            reddit: Math.floor(requestCount * 0.4)
-          };
-          
-          const lastAttemptArticles = await fetchMultiSourceArticles(lastAttemptRequest);
-          const uniqueLastAttemptArticles = lastAttemptArticles.filter(article => 
-            !cachedIds.has(article.pageid) && 
-            !currentIds.has(article.pageid) &&
-            article.title && 
-            article.title.trim() !== ''
-            // Here we don't filter for thumbnail so we get at least some articles
-          );
-          
-          if (uniqueLastAttemptArticles.length > 0) {
-            const sortedFinalArticles = uniqueLastAttemptArticles.sort((a, b) => {
-              const aViewed = a.pageid ? viewedArticleIds.current.has(a.pageid) : false;
-              const bViewed = b.pageid ? viewedArticleIds.current.has(b.pageid) : false;
-              
-              if (aViewed && !bViewed) return 1; 
-              if (!aViewed && bViewed) return -1;
-              return 0;
-            });
-            
-            sortedFinalArticles.forEach(article => {
-              if (article.pageid) {
-                viewedArticleIds.current.add(article.pageid);
-                markArticleAsViewed(article);
-              }
-            });
-            
-            console.log(`Last attempt found ${sortedFinalArticles.length} articles`);
-            
-            setArticles(prev => [...prev, ...sortedFinalArticles]);
-            const allArticles = [...cachedArticles, ...sortedFinalArticles];
-            saveArticlesToCache(allArticles.slice(0, MAX_CACHED_ARTICLES));
-          } else {
-            console.log("All attempts failed to find new articles");
-          }
-        }
+        // Update the cache with new combined set
+        saveArticlesToCache([...articles, ...uniqueArticles.slice(0, count)]);
       } else {
-        // Sort so unviewed articles come first
-        const sortedNewArticles = uniqueNewArticles.sort((a, b) => {
-          const aViewed = a.pageid ? viewedArticleIds.current.has(a.pageid) : false;
-          const bViewed = b.pageid ? viewedArticleIds.current.has(b.pageid) : false;
-          
-          if (aViewed && !bViewed) return 1; 
-          if (!aViewed && bViewed) return -1;
-          return 0;
-        });
+        // If all are duplicates, try again with a different query
+        const backupQuery = queries[Math.floor(Math.random() * queries.length)];
+        const backupArticles = await fetchFreshArticles(count + 10, () => {}, backupQuery);
+        const uniqueBackupArticles = filterOutSeenArticles(backupArticles, seenArticleIds);
         
-        // Mark new articles as viewed
-        sortedNewArticles.forEach(article => {
-          if (article.pageid) {
-            viewedArticleIds.current.add(article.pageid);
-            markArticleAsViewed(article);
-          }
-        });
-        
-        console.log(`Adding ${sortedNewArticles.length} new articles to feed`);
-        
-        // Update state and cache
-        setArticles(prev => [...prev, ...sortedNewArticles]);
-        
-        // Only save to cache with a limit to prevent excessive storage
-        const allArticles = [...cachedArticles, ...sortedNewArticles];
-        saveArticlesToCache(allArticles.slice(0, MAX_CACHED_ARTICLES));
+        setArticles(prev => [...prev, ...uniqueBackupArticles.slice(0, count)]);
+        saveArticlesToCache([...articles, ...uniqueBackupArticles.slice(0, count)]);
       }
-    } catch (err) {
-      console.error('Error loading more articles:', err);
-      // Don't show error to user for background loading
+    } catch (error) {
+      console.error('Error loading more articles in background:', error);
     } finally {
       setIsLoadingBackground(false);
     }
-  }, [isLoadingBackground, fetchFreshArticles, loadArticlesFromCache, saveArticlesToCache, articles, fetchMultiSourceArticles]);
+  };
 
   return {
     articles,

@@ -90,72 +90,65 @@ const getFromCacheOrFetch = async (cacheKey: string, fetchFn: () => Promise<any>
   return data;
 };
 
-// Utility function to get high-resolution version of images
-export const getHighResImage = (thumbnail: any): any => {
-  if (!thumbnail || !thumbnail.source) return thumbnail;
+/**
+ * Converts a thumbnail URL to a high-resolution version
+ */
+export function getHighResImage(url: string): string | null {
+  if (!url) return null;
   
   try {
-    const imgSrc = thumbnail.source;
-
-    // Handle Wikipedia thumbnail URLs - convert /thumb/ to full resolution
-    if (imgSrc.includes('/thumb/') && imgSrc.includes('wikipedia.org')) {
-      const fullResUrl = imgSrc.replace(/\/thumb\//, '/').split('/').slice(0, -1).join('/');
-      return {
-        ...thumbnail,
-        source: fullResUrl
-      };
-    }
-    
-    // Handle Wikimedia Commons URLs
-    if (imgSrc.includes('wikimedia.org')) {
-      // If URL contains a size parameter like /300px-
-      if (imgSrc.match(/\/\d+px-/)) {
-        // Remove size constraints from wikimedia URLs
-        const fullResUrl = imgSrc.replace(/\/\d+px-/, '/');
-        return {
-          ...thumbnail,
-          source: fullResUrl
-        };
+    // Wikipedia/Wikimedia images
+    if (url.includes('wikipedia.org') || url.includes('wikimedia.org')) {
+      const urlObj = new URL(url);
+      
+      // Handle thumb URLs by removing the thumbnail size constraint
+      if (urlObj.pathname.includes('/thumb/')) {
+        const pathParts = urlObj.pathname.split('/');
+        // If it ends with a dimension (like 300px), remove that part
+        if (pathParts[pathParts.length - 1].match(/\d+px/)) {
+          pathParts.pop();
+          // Remove 'thumb' from the path
+          const thumbIndex = pathParts.indexOf('thumb');
+          if (thumbIndex !== -1) {
+            pathParts.splice(thumbIndex, 1);
+          }
+          urlObj.pathname = pathParts.join('/');
+          return `${urlObj.toString()}?width=800&cb=${Date.now()}`;
+        }
       }
+      
+      // Not a thumb URL, just increase width
+      return `${url}?width=800&cb=${Date.now()}`;
     }
     
-    // Handle iTunes artwork URLs - upgrade to highest resolution
-    if (imgSrc.includes('mzstatic.com')) {
-      // iTunes artwork often has dimensions in URL (e.g., 100x100)
-      const fullResUrl = imgSrc.replace(/\/\d+x\d+/, '/1200x1200');
-      return {
-        ...thumbnail,
-        source: fullResUrl
-      };
+    // Reddit images
+    if (url.includes('redd.it')) {
+      // Remove size constraints in Reddit URLs
+      return url.replace(/\?width=\d+&height=\d+/, '')
+                .replace(/&amp;/, '&');
     }
     
-    // Handle imgur thumbnail URLs
-    if (imgSrc.includes('imgur.com')) {
-      // Replace thumbnail suffixes with originals
-      if (imgSrc.includes('_d.') || imgSrc.includes('_t.') || imgSrc.includes('_m.') || imgSrc.includes('_l.')) {
-        const fullResUrl = imgSrc.replace(/(_[a-z])\.(jpg|png|gif)/i, '.$2');
-        return {
-          ...thumbnail,
-          source: fullResUrl
-        };
-      }
+    // Imgur images
+    if (url.includes('imgur.com')) {
+      // For Imgur, ensure we get the large version
+      return url.replace(/\.jpg$/, 'l.jpg')
+                .replace(/\.png$/, 'l.png');
     }
     
-    // Handle Reddit-specific resized images
-    if (imgSrc.includes('external-preview.redd.it') || imgSrc.includes('preview.redd.it')) {
-      // Reddit image previews often have width/compressions in URL params
-      const urlWithoutParams = imgSrc.split('?')[0];
-      return {
-        ...thumbnail,
-        source: urlWithoutParams
-      };
+    // iTunes/Apple images (for podcasts)
+    if (url.includes('mzstatic.com')) {
+      // Replace the dimension in the URL with a larger size
+      return url.replace(/\d+x\d+/, '600x600');
     }
+    
+    // For other URLs, return as is
+    return url;
+    
   } catch (error) {
-    console.error('Error converting thumbnail to high-res:', error);
+    console.error('Error converting to high-res image:', error, url);
+    return url;
   }
-  
-  return thumbnail;
-};
+}
 
 // ========== WIKIPEDIA API ==========
 export async function fetchRandomWikipediaArticle(): Promise<WikipediaArticle> {
@@ -944,22 +937,113 @@ export async function fetchWikipediaCurrentEvents(count: number = 5): Promise<Wi
   return await getFromCacheOrFetch(cacheKey, fetchFn);
 }
 
+// New function to fetch articles using the direct Wikipedia API endpoint
+export async function fetchWikipediaArticlesDirectly(query: string, count: number = 10): Promise<WikipediaArticle[]> {
+  try {
+    const cacheKey = `wikipedia_direct_${query}_${count}`;
+    
+    const fetchFn = async () => {
+      try {
+        // Use the direct API endpoint as requested
+        const response = await axios.get('https://en.wikipedia.org/w/api.php', {
+          params: {
+            action: 'query',
+            generator: 'search',
+            gsrsearch: query,
+            prop: 'pageimages|extracts',
+            exintro: 1,
+            explaintext: 1,
+            pilimit: 50,
+            pithumbsize: 800, // Increased from 300 to 800 for better quality while still optimized
+            format: 'json',
+            origin: '*'
+          },
+          timeout: 5000 // Add timeout to prevent hanging requests
+        });
+        
+        // Check if we have valid results
+        if (!response.data?.query?.pages) {
+          console.log('No results found for query:', query);
+          return [];
+        }
+        
+        // Convert the pages object to an array
+        const pagesObj = response.data.query.pages;
+        const articles = Object.values(pagesObj);
+        
+        console.log(`Fetched ${articles.length} articles for query "${query}"`);
+        
+        // Map the API response to our WikipediaArticle format
+        const mappedArticles = articles
+          .filter((article: any) => 
+            article.title && 
+            (article.extract || article.description) && 
+            article.thumbnail // Only include articles with images
+          )
+          .map((article: any) => {
+            // Optimize thumbnail if present
+            let optimizedThumbnail = article.thumbnail ? getHighResImage(article.thumbnail) : undefined;
+            
+            // Add a cache-busting parameter to force refresh if needed
+            if (optimizedThumbnail && optimizedThumbnail.source) {
+              const url = optimizedThumbnail.source;
+              optimizedThumbnail.source = url.includes('?') ? `${url}&cb=${Date.now() % 1000}` : `${url}?cb=${Date.now() % 1000}`;
+            }
+            
+            return {
+              pageid: article.pageid,
+              title: article.title,
+              extract: article.extract,
+              thumbnail: optimizedThumbnail,
+              description: article.description || article.extract?.substring(0, 100) + '...',
+              source: 'wikipedia' as ContentSource,
+              url: `https://en.wikipedia.org/wiki/${encodeURIComponent(article.title)}`
+            };
+          });
+        
+        // Apply additional image optimization
+        const optimizedArticles = optimizeArticleImagesArray(mappedArticles);
+        
+        // Return the results, limited to the requested count
+        return optimizedArticles.slice(0, count);
+      } catch (error) {
+        console.error('Error fetching Wikipedia articles directly:', error);
+        return [];
+      }
+    };
+    
+    return await getFromCacheOrFetch(cacheKey, fetchFn);
+  } catch (error) {
+    console.error('Error in fetchWikipediaArticlesDirectly:', error);
+    return [];
+  }
+}
+
 // ========== COMBINED API ==========
 export const fetchMultiSourceArticles = async (
-  sourceRequests: Partial<Record<ContentSource, number>>
+  sourceRequests: Partial<Record<ContentSource, number>>,
+  searchQuery?: string
 ): Promise<WikipediaArticle[]> => {
   const allArticles: WikipediaArticle[] = [];
   
   // Fetch from each source based on the requests
   const promises: Promise<any>[] = []; // Change to any to handle different promise return types
   
-  // Wikipedia
+  // Wikipedia - use direct API if a search query is provided, otherwise use random articles
   if (sourceRequests.wikipedia && sourceRequests.wikipedia > 0) {
-    promises.push(
-      fetchRandomArticles(sourceRequests.wikipedia)
-        .then(articles => allArticles.push(...articles))
-        .catch(err => console.error('Error fetching Wikipedia articles:', err))
-    );
+    if (searchQuery) {
+      promises.push(
+        fetchWikipediaArticlesDirectly(searchQuery, sourceRequests.wikipedia)
+          .then(articles => allArticles.push(...articles))
+          .catch(err => console.error('Error fetching Wikipedia articles directly:', err))
+      );
+    } else {
+      promises.push(
+        fetchRandomArticles(sourceRequests.wikipedia)
+          .then(articles => allArticles.push(...articles))
+          .catch(err => console.error('Error fetching Wikipedia articles:', err))
+      );
+    }
   }
   
   // Wikipedia Current Events Portal
@@ -1155,135 +1239,49 @@ export const searchPodcastEpisodes = async (term: string, limit: number = 5): Pr
 // Search for trending podcasts
 export const fetchTrendingPodcasts = async (limit: number = 10): Promise<PodcastEpisode[]> => {
   try {
-    // Use a dedicated cache key for podcasts
-    const cacheKey = 'podcasts_trending';
+    // Load directly from the static data files in data/podcasts/
+    console.log('Loading podcasts from static data files');
     
-    // Try to get from cache first (with 30 minute expiration)
-    const cachedData = localStorage.getItem(cacheKey);
-    if (cachedData) {
-      try {
-        const parsedCache = JSON.parse(cachedData);
-        if (parsedCache.timestamp && (Date.now() - parsedCache.timestamp < 30 * 60 * 1000)) {
-          console.log('Using cached podcast data');
-          return parsedCache.data;
-        }
-      } catch (e) {
-        console.error('Failed to parse podcast cache:', e);
-        // Cache was invalid, continue with fetch
-      }
-    }
+    // First try to fetch the index to get all podcast categories
+    let podcasts: PodcastEpisode[] = [];
     
-    // Calculate how many podcasts to request from iTunes to ensure we get enough with episodes
-    // Request 2.5x more than needed since not all will have valid episodes
-    const requestLimit = Math.min(200, Math.ceil(limit * 2.5)); 
-    
-    // Use iTunes charts API to get popular podcasts with a focus on content with audio streams
-    const response = await axios.get(
-      'https://itunes.apple.com/search',
-      {
-        params: {
-          term: 'podcast',
-          media: 'podcast',
-          entity: 'podcast',
-          // Use attributes to get better audio results
-          attribute: 'titleTerm',
-          limit: requestLimit,
-          country: 'US'
-        },
-        timeout: 8000 // Increase timeout for reliability
-      }
-    );
-    
-    if (!response.data?.results?.length) {
-      // Fallback: use sample data if API fails
-      return generateSamplePodcasts(limit);
-    }
-    
-    // Process and format the response
-    const podcasts = response.data.results;
-    
-    // For each podcast, fetch the latest episodes
-    // Use Promise.allSettled to prevent one failure from affecting all requests
-    const podcastsWithEpisodes = await Promise.allSettled(
-      podcasts.map(async (podcast: any) => {
+    try {
+      // Fetch the index file first
+      const indexResponse = await fetch('/data/podcasts/index.json');
+      const indexData = await indexResponse.json();
+      
+      // For each podcast category in the index, load its episodes
+      const podcastPromises = indexData.podcasts.map(async (podcastInfo: any) => {
         try {
-          const episodesResponse = await axios.get(
-            'https://itunes.apple.com/lookup',
-            {
-              params: {
-                id: podcast.collectionId,
-                entity: 'podcastEpisode',
-                limit: 10 // Increased from 5 to 10 episodes per podcast
-              },
-              timeout: 5000 // Add timeout to prevent hanging requests
-            }
-          );
+          const podcastResponse = await fetch(`/data/podcasts/${podcastInfo.id}.json`);
+          const podcastData = await podcastResponse.json();
           
-          if (episodesResponse.data?.results?.length > 1) {
-            // First result is the podcast itself, rest are episodes
-            const episodes = episodesResponse.data.results.slice(1);
-            return episodes.map((episode: any) => ({
-              id: episode.trackId,
-              title: episode.trackName || 'Untitled Episode',
-              description: episode.description || podcast.collectionName,
-              url: episode.previewUrl || episode.trackViewUrl,
-              audio: episode.episodeUrl || episode.previewUrl || episode.trackViewUrl,
-              datePublished: new Date(episode.releaseDate).toLocaleDateString(),
-              duration: formatMilliseconds(episode.trackTimeMillis),
-              image: getBestPodcastImage(episode.artworkUrl600, podcast.artworkUrl600, podcast.artworkUrl100),
-              feedTitle: podcast.collectionName,
-              feedUrl: podcast.feedUrl,
-              feedImage: getBestPodcastImage(podcast.artworkUrl600, podcast.artworkUrl100),
-              categories: [podcast.primaryGenreName]
-            }));
-          }
-          
-          // If no episodes found, return the podcast info as a placeholder
-          return [{
-            id: podcast.collectionId,
-            title: podcast.collectionName,
-            description: podcast.collectionName,
-            url: podcast.collectionViewUrl,
-            audio: '',
-            datePublished: new Date(podcast.releaseDate).toLocaleDateString(),
-            duration: '00:00',
-            image: getBestPodcastImage(podcast.artworkUrl600, podcast.artworkUrl100),
-            feedTitle: podcast.collectionName,
-            feedUrl: podcast.feedUrl,
-            feedImage: getBestPodcastImage(podcast.artworkUrl600, podcast.artworkUrl100),
-            categories: [podcast.primaryGenreName]
-          }];
+          // Return the episodes from this podcast file
+          return podcastData.episodes || [];
         } catch (error) {
-          console.error('Error fetching podcast episodes:', error);
+          console.error(`Error loading podcast ${podcastInfo.id}:`, error);
           return [];
         }
-      })
-    );
-    
-    // Process results from Promise.allSettled
-    const allEpisodes = podcastsWithEpisodes
-      .filter(result => result.status === 'fulfilled')
-      .map(result => (result as PromiseFulfilledResult<PodcastEpisode[]>).value)
-      .flat();
-    
-    // Filter valid episodes (with audio) and take up to the limit
-    const validEpisodes = allEpisodes
-      .filter(podcast => podcast.audio)
-      .slice(0, limit);
+      });
       
-    // Save to cache for faster future loads
-    if (validEpisodes.length > 0) {
-      try {
-        localStorage.setItem(cacheKey, JSON.stringify({
-          timestamp: Date.now(),
-          data: validEpisodes
-        }));
-      } catch (e) {
-        console.error('Failed to cache podcast data:', e);
+      // Wait for all podcast data to load
+      const podcastResults = await Promise.all(podcastPromises);
+      
+      // Flatten the array of episode arrays
+      podcasts = podcastResults.flat();
+      
+      // If we got podcasts, use them
+      if (podcasts.length > 0) {
+        console.log(`Successfully loaded ${podcasts.length} episodes from static data files`);
+        return podcasts.slice(0, limit);
       }
+    } catch (error) {
+      console.error('Error loading podcasts from static files:', error);
     }
     
-    return validEpisodes;
+    // Fallback to sample data if loading from files failed
+    console.log('Falling back to sample podcast data');
+    return generateSamplePodcasts(limit);
   } catch (error) {
     console.error('Error fetching trending podcasts:', error);
     return generateSamplePodcasts(limit);
@@ -1507,7 +1505,7 @@ const getBestPodcastImage = (...images: (string | undefined)[]): string => {
   
   if (!bestImageUrl) return '';
   
-  // Apply high-resolution transformations
+  // Apply high-res transformations
   try {
     // iTunes artwork often has dimensions in URL (e.g., 100x100)
     // Replace with maximum resolution
@@ -1524,22 +1522,33 @@ const getBestPodcastImage = (...images: (string | undefined)[]): string => {
   }
 };
 
-// Optimize all images in a WikipediaArticle
-export const optimizeArticleImages = (article: WikipediaArticle): WikipediaArticle => {
+// Utility function to optimize article images
+export function optimizeArticleImages(article: WikipediaArticle): WikipediaArticle {
   if (!article) return article;
   
-  // Apply high-res transformation to the thumbnail
-  let optimizedArticle = { ...article };
-  
-  if (optimizedArticle.thumbnail) {
-    optimizedArticle.thumbnail = getHighResImage(optimizedArticle.thumbnail);
+  // Store original thumbnail before modifications
+  if (article.thumbnail) {
+    article.originalThumbnail = { ...article.thumbnail };
   }
   
-  return optimizedArticle;
-};
+  // If no thumbnail exists, return article as is
+  if (!article.thumbnail || !article.thumbnail.source) {
+    return article;
+  }
+  
+  // Get high-res version of the image
+  const highResUrl = getHighResImage(article.thumbnail.source);
+  
+  if (highResUrl) {
+    article.thumbnail.source = highResUrl;
+  }
+  
+  return article;
+}
 
 // Optimize all images in an array of WikipediaArticles
-export const optimizeArticleImagesArray = (articles: WikipediaArticle[]): WikipediaArticle[] => {
-  if (!articles || !Array.isArray(articles)) return articles;
+export function optimizeArticleImagesArray(articles?: WikipediaArticle[]): WikipediaArticle[] {
+  if (!articles || !Array.isArray(articles)) return articles || [];
+  
   return articles.map(article => optimizeArticleImages(article));
-}; 
+} 
