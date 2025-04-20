@@ -813,39 +813,44 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
     }
   }, [currentIndex, articles, currentArticle]);
   
-  // Handle double tap to like (keep this functionality but remove tap to navigate)
+  // Handle tap/click on article
   const handleTap = () => {
     const now = Date.now();
-    const DOUBLE_TAP_DELAY = 300; // ms
+    const timeDiff = now - lastTapTime;
     
-    if (lastTapTime && (now - lastTapTime) < DOUBLE_TAP_DELAY) {
-      // Double tap detected
-      if (currentArticle) {
-        handleLike();
-        setShowLikeAnimation(true);
-        setTimeout(() => setShowLikeAnimation(false), 1000);
-      }
+    // Check if this is a double tap (timeframe between 100-500ms)
+    if (timeDiff < 500 && timeDiff > 100) {
+      // This is a double tap - toggle like status
+      handleLike();
+      
+      // Show like animation
+      setShowLikeAnimation(true);
+      setTimeout(() => setShowLikeAnimation(false), 1000);
     }
     
+    // Update last tap time for next comparison
     setLastTapTime(now);
   };
   
-  // Add a ref to track if we're currently loading more articles
-  const isLoadingBackgroundRef = useRef(false);
-  
-  // Implement improved infinite scroll handling
+  // Enhanced infinite scroll with batch loading and preloading
   useEffect(() => {
-    // Function to check if we're nearing the end of the available articles
+    // Reference to track if we're already loading in the background
+    const isLoadingBackgroundRef = { current: false };
+    
+    // Check if we should load more articles
     const checkForInfiniteScroll = () => {
-      // If we're within 15 articles of the end, load more articles (increased from 5)
-      if (articles.length - currentIndex <= 15 && !isLoadingBackgroundRef.current) {
-        console.log(`Reached near end of articles (index ${currentIndex}/${articles.length}), loading more...`);
+      // If we're within 5 articles of the end, load more in the background
+      if (articles.length - currentIndex <= 5 && !isLoadingBackgroundRef.current) {
+        console.log('Near the end of articles, loading more in background...');
         isLoadingBackgroundRef.current = true;
-        loadMoreArticlesInBackground(30); // Request more articles (increased from 20)
-        // Reset the loading flag after a timeout
+        
+        // Load 10 articles at a time for better performance
+        loadMoreArticlesInBackground(10);
+        
+        // Reset the loading flag after a delay
         setTimeout(() => {
           isLoadingBackgroundRef.current = false;
-        }, 5000); // Prevent rapid repeated loading requests
+        }, 5000);
       }
     };
     
@@ -869,28 +874,57 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
     };
   }, [currentIndex, articles.length, loadMoreArticlesInBackground]);
   
-  // Preload images for better performance
+  // Enhanced image preloading with more sophisticated handling
   useEffect(() => {
-    // Preload the next 3 images and previous 1 image
+    if (!articles.length) return;
+    
+    // Create an array of articles to preload
     const preloadArticleIndices = [];
-    // Next 3 articles
-    for (let i = 1; i <= 3; i++) {
+    
+    // Next 10 articles (increased from 5)
+    for (let i = 1; i <= 10; i++) {
       const index = currentIndex + i;
       if (index < articles.length) {
         preloadArticleIndices.push(index);
       }
     }
-    // Previous article
-    if (currentIndex > 0) {
-      preloadArticleIndices.push(currentIndex - 1);
+    
+    // Previous 3 articles (increased from 2)
+    for (let i = 1; i <= 3; i++) {
+      const index = currentIndex - i;
+      if (index >= 0) {
+        preloadArticleIndices.push(index);
+      }
     }
     
-    // Perform the preloading
-    preloadArticleIndices.forEach(index => {
+    // Perform the preloading with priority levels
+    preloadArticleIndices.forEach((index, i) => {
       const article = articles[index];
       if (article?.thumbnail?.source) {
-        const img = new Image();
-        img.src = article.thumbnail.source;
+        const imgUrl = article.thumbnail.source;
+        
+        // Only preload if not already in browser cache
+        // Add slight delay for each consecutive image to avoid network contention
+        setTimeout(() => {
+          const img = new Image();
+          
+          // Add loading attributes based on distance from current index
+          if (i < 3) {
+            // First 3 images get higher priority
+            img.setAttribute('importance', 'high');
+            img.loading = 'eager';
+          } else {
+            img.setAttribute('importance', 'low');
+            img.loading = 'lazy';
+          }
+          
+          // Set source last to start loading
+          img.src = imgUrl;
+          
+          // For debugging
+          img.onload = () => console.log(`Preloaded image ${index - currentIndex} from current`);
+          img.onerror = () => console.error(`Failed to preload image ${index - currentIndex} from current`);
+        }, i * 100); // Stagger loads by 100ms each
       }
     });
   }, [currentIndex, articles]);
@@ -999,7 +1033,9 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
       style={{ 
         WebkitOverflowScrolling: 'touch',
         overscrollBehavior: 'contain',
-        touchAction: 'pan-y'
+        touchAction: 'pan-y',
+        scrollSnapType: 'y mandatory',
+        scrollBehavior: 'smooth'
       }}
       onTouchStart={(e) => {
         // Record starting touch position for swipe detection
@@ -1068,9 +1104,12 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
         {currentArticle && hasValidTitle && (
           <motion.div
             key={currentArticle.pageid}
-            className={`absolute inset-0 flex flex-col h-full overflow-hidden ${
+            className={`absolute inset-0 flex flex-col h-full overflow-hidden scroll-snap-align-start ${
               hasAudioPlayer ? 'pb-20' : ''
             }`}
+            style={{
+              scrollSnapAlign: 'start'
+            }}
             variants={articleVariants}
             initial="initial"
             animate="animate"
@@ -1162,43 +1201,8 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
               )}
               
               {/* Article content */}
-              <div className="flex items-start justify-between relative">
-                <div className="flex-1 pr-4">
-                  {/* Article title */}
-                  <h2 className="text-4xl font-bold font-garamond mb-0.5 pr-16 text-white" style={{ fontSize: '24px', lineHeight: '1.2' }}>
-                    {currentArticle.title}
-                  </h2>
-                  
-                  {/* Description */}
-                  {currentArticle.description && currentArticle.source !== 'hackernews' && (
-                    <p className="text-white/80 italic font-space mb-3">
-                      {currentArticle.description}
-                    </p>
-                  )}
-                  
-                  {/* Extract */}
-                  {currentArticle.extract && (
-                    <div 
-                      className="article-extract"
-                      dangerouslySetInnerHTML={{ __html: currentArticle.extract }}
-                    />
-                  )}
-                  
-                  {/* Read more button */}
-                  <button 
-                    onClick={handleReadMore}
-                    className="inline-flex items-center text-white font-space hover:text-gray-300 transition mt-2"
-                  >
-                    <span className="mr-2">
-                      {getReadMoreButtonText(currentArticle.source)}
-                    </span>
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                      <path fillRule="evenodd" d="M10.293 5.293a1 1 0 011.414 0l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414-1.414L12.586 11H5a1 1 0 110-2h7.586l-2.293-2.293a1 1 0 010-1.414z" clipRule="evenodd" />
-                    </svg>
-                  </button>
-                </div>
-
-                {/* Like button */}
+              <div className="flex flex-col relative">
+                {/* Like button - Moved to top right */}
                 <div 
                   className="absolute top-0 right-0 z-30"
                   key={`like-container-${currentArticle.pageid}`}
@@ -1237,16 +1241,47 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
                         className="h-6 w-6 text-white" 
                         fill="none" 
                         viewBox="0 0 24 24" 
-                        stroke="currentColor" 
-                        strokeWidth="2"
+                        stroke="currentColor"
                         key={`heart-outline-${currentArticle.pageid}`}
-                        whileHover={{ scale: 1.1 }}
                       >
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
                       </motion.svg>
                     )}
                   </motion.button>
                 </div>
+
+                {/* Article title - Added padding right to avoid overlap */}
+                <h2 className="text-4xl font-bold font-garamond mb-3 pr-16 text-white" style={{ fontSize: '24px', lineHeight: '1.2' }}>
+                  {currentArticle.title}
+                </h2>
+                
+                {/* Description - Added margin top to create space */}
+                {currentArticle.description && currentArticle.source !== 'hackernews' && (
+                  <p className="text-white/80 italic font-space mb-3 mt-2">
+                    {currentArticle.description}
+                  </p>
+                )}
+                
+                {/* Extract */}
+                {currentArticle.extract && (
+                  <div 
+                    className="article-extract mt-3"
+                    dangerouslySetInnerHTML={{ __html: currentArticle.extract }}
+                  />
+                )}
+                
+                {/* Read more button */}
+                <button 
+                  onClick={handleReadMore}
+                  className="inline-flex items-center text-white font-space hover:text-gray-300 transition mt-4"
+                >
+                  <span className="mr-2">
+                    {getReadMoreButtonText(currentArticle.source)}
+                  </span>
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M10.293 5.293a1 1 0 011.414 0l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414-1.414L12.586 11H5a1 1 0 110-2h7.586l-2.293-2.293a1 1 0 010-1.414z" clipRule="evenodd" />
+                  </svg>
+                </button>
               </div>
             </motion.div>
           </motion.div>
