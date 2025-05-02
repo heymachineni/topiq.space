@@ -9,6 +9,7 @@ interface PodcastViewProps {
   tabNavigator?: React.ReactNode;
   onPlayPodcast: (podcast: PodcastEpisode) => void;
   isPodcastPlaying?: boolean;
+  currentlyPlayingId?: number;
 }
 
 // Interface for podcast categories
@@ -45,7 +46,7 @@ const OptimizedImage = ({ src, alt, className, fallback }: {
   );
 };
 
-const PodcastView: React.FC<PodcastViewProps> = ({ onRefresh, tabNavigator, onPlayPodcast, isPodcastPlaying = false }) => {
+const PodcastView: React.FC<PodcastViewProps> = ({ onRefresh, tabNavigator, onPlayPodcast, isPodcastPlaying = false, currentlyPlayingId }) => {
   // Main state
   const [allPodcasts, setAllPodcasts] = useState<PodcastEpisode[]>([]);
   const [loading, setLoading] = useState(true);
@@ -99,6 +100,9 @@ const PodcastView: React.FC<PodcastViewProps> = ({ onRefresh, tabNavigator, onPl
   const [searchLoading, setSearchLoading] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
+  // Cache key for podcast data
+  const PODCAST_CACHE_KEY = 'topiq.space_podcast_data';
+
   // Track when podcastPlaying changes
   useEffect(() => {
     console.log('isPodcastPlaying changed:', isPodcastPlaying);
@@ -116,10 +120,46 @@ const PodcastView: React.FC<PodcastViewProps> = ({ onRefresh, tabNavigator, onPl
     }
   }, []);
 
-  // Load all podcast categories on mount
+  // Load all podcast categories on mount with caching
   useEffect(() => {
+    // Try to load from cache first
+    const cachedPodcasters = localStorage.getItem(PODCAST_CACHE_KEY);
+    if (cachedPodcasters) {
+      try {
+        const parsed = JSON.parse(cachedPodcasters);
+        // Check if cache is fresh (less than 1 hour old)
+        const cacheTime = parsed.timestamp || 0;
+        const now = Date.now();
+        const cacheAge = now - cacheTime;
+        const ONE_HOUR = 60 * 60 * 1000;
+        
+        if (cacheAge < ONE_HOUR && parsed.data && Array.isArray(parsed.data)) {
+          console.log('Loading podcast data from cache');
+          setFamousPodcasters(parsed.data);
+          setLoading(false);
+          return;
+        }
+      } catch (e) {
+        console.error('Failed to parse cached podcast data', e);
+      }
+    }
+    
+    // If no cache or cache is stale, load from network
     loadAllPodcastCategories();
   }, []);
+  
+  // Cache podcasters data whenever it changes
+  useEffect(() => {
+    // Only cache if we have loaded data and not in loading state
+    if (!loading && famousPodcasters.some(p => p.podcasts.length > 0)) {
+      const dataToCache = {
+        timestamp: Date.now(),
+        data: famousPodcasters
+      };
+      localStorage.setItem(PODCAST_CACHE_KEY, JSON.stringify(dataToCache));
+      console.log('Podcast data cached');
+    }
+  }, [famousPodcasters, loading]);
   
   // Load all podcast categories
   const loadAllPodcastCategories = async () => {
@@ -428,46 +468,56 @@ const PodcastView: React.FC<PodcastViewProps> = ({ onRefresh, tabNavigator, onPl
   }, [onPlayPodcast, closeSearch]);
 
   // Render a podcast card - extracted for reuse
-  const renderPodcastCard = (podcast: PodcastEpisode, isWide: boolean = false) => (
-    <div 
-      key={podcast.id} 
-      className={`group relative rounded-xl shadow-sm bg-white dark:bg-gray-800 overflow-hidden hover:shadow-lg transition-all duration-200 ${isWide ? 'w-64 flex-shrink-0' : 'w-full'} hover:scale-95 transform transition-transform duration-300 cursor-pointer`}
-      onClick={() => onPlayPodcast(podcast)}
-    >
-      {/* Image */}
-      <div className="relative w-full aspect-square">
-        <OptimizedImage
-          src={podcast.image || podcast.feedImage || ''}
-          alt={podcast.title}
-          className="w-full h-full object-cover"
-          fallback={podcast.feedImage}
-        />
-        <div className="absolute bottom-0 left-0 right-0 h-20 bg-gradient-to-t from-black/70 to-transparent" />
-        
-        {/* Play button overlay */}
-        <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-          <div className="bg-black bg-opacity-60 p-4 rounded-full">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white" className="w-8 h-8">
-              <path fillRule="evenodd" d="M4.5 5.653c0-1.426 1.529-2.33 2.779-1.643l11.54 6.348c1.295.712 1.295 2.573 0 3.285L7.28 19.991c-1.25.687-2.779-.217-2.779-1.643V5.653z" clipRule="evenodd" />
-            </svg>
+  const renderPodcastCard = (podcast: PodcastEpisode, isWide: boolean = false) => {
+    // Check if this podcast is currently playing
+    const isPlaying = currentlyPlayingId === podcast.id && isPodcastPlaying;
+    
+    return (
+      <div 
+        key={podcast.id} 
+        className={`group relative rounded-xl shadow-sm bg-white dark:bg-gray-800 overflow-hidden hover:shadow-lg transition-all duration-200 ${isWide ? 'w-64 flex-shrink-0' : 'w-full'} hover:scale-95 transform transition-transform duration-300 cursor-pointer h-full`}
+        onClick={() => onPlayPodcast(podcast)}
+      >
+        {/* Image */}
+        <div className="relative w-full aspect-square">
+          <OptimizedImage
+            src={podcast.image || podcast.feedImage || ''}
+            alt={podcast.title}
+            className="w-full h-full object-cover"
+            fallback={podcast.feedImage}
+          />
+          <div className="absolute bottom-0 left-0 right-0 h-20 bg-gradient-to-t from-black/70 to-transparent" />
+          
+          {/* Play button overlay */}
+          <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+            <div className="bg-black bg-opacity-60 p-4 rounded-full">
+              {isPlaying ? (
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white" className="w-8 h-8">
+                  <path fillRule="evenodd" d="M6.75 5.25a.75.75 0 01.75-.75H9a.75.75 0 01.75.75v13.5a.75.75 0 01-.75.75H7.5a.75.75 0 01-.75-.75V5.25zm7.5 0A.75.75 0 0115 4.5h1.5a.75.75 0 01.75.75v13.5a.75.75 0 01-.75.75H15a.75.75 0 01-.75-.75V5.25z" clipRule="evenodd" />
+                </svg>
+              ) : (
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white" className="w-8 h-8">
+                  <path fillRule="evenodd" d="M4.5 5.653c0-1.426 1.529-2.33 2.779-1.643l11.54 6.348c1.295.712 1.295 2.573 0 3.285L7.28 19.991c-1.25.687-2.779-.217-2.779-1.643V5.653z" clipRule="evenodd" />
+                </svg>
+              )}
+            </div>
+          </div>
+          
+          {/* Duration */}
+          <div className="absolute bottom-2 right-2 bg-black bg-opacity-70 text-white px-2 py-1 rounded-full text-xs">
+            {podcast.duration || ''}
           </div>
         </div>
         
-        {/* Duration */}
-        <div className="absolute bottom-2 right-2 bg-black bg-opacity-70 text-white px-2 py-1 rounded-full text-xs">
-          {podcast.duration || ''}
+        {/* Title and description - with gray background */}
+        <div className="p-3 bg-gray-100 dark:bg-gray-700 h-20 flex items-center">
+          <h3 className="text-sm font-semibold line-clamp-2 text-gray-900 dark:text-gray-100">
+            {podcast.title}
+          </h3>
         </div>
       </div>
-      
-      {/* Title and description - with gray background */}
-      <div className="p-3 bg-gray-100 dark:bg-gray-700">
-        <h3 className="text-sm font-semibold line-clamp-2 text-gray-900 dark:text-gray-100">
-          {podcast.title}
-        </h3>
-        {/* Date removed as requested */}
-      </div>
-    </div>
-  );
+    );
+  };
 
   // Render podcast category row with collapsible UI for mobile
   const renderPodcastCategory = (category: PodcastCategory, isWide: boolean = false) => {
@@ -493,11 +543,15 @@ const PodcastView: React.FC<PodcastViewProps> = ({ onRefresh, tabNavigator, onPl
         {/* Desktop layout - normal grid */}
         <div className="hidden sm:block px-4">
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-5">
-            {limitedPodcasts.map(podcast => renderPodcastCard(podcast, isWide))}
+            {limitedPodcasts.map(podcast => (
+              <div key={podcast.id} className="h-full">
+                {renderPodcastCard(podcast, isWide)}
+              </div>
+            ))}
           </div>
         </div>
         
-        {/* Mobile layout - horizontal scroll with 3 columns */}
+        {/* Mobile layout - horizontal scroll with uniform card sizes */}
         <div className="sm:hidden px-4 overflow-x-auto hide-scrollbar">
           <div className="flex space-x-4 pb-3 w-full" style={{ 
             WebkitOverflowScrolling: 'touch',
@@ -507,9 +561,9 @@ const PodcastView: React.FC<PodcastViewProps> = ({ onRefresh, tabNavigator, onPl
             {limitedPodcasts.map((podcast, index) => (
               <div 
                 key={podcast.id} 
-                className="w-[42%] min-w-[42%] flex-shrink-0 first:ml-0"
+                className="w-[45%] min-w-[45%] flex-shrink-0 first:ml-0 h-full"
                 style={{ 
-                  flexBasis: '42%', 
+                  flexBasis: '45%', 
                   flexShrink: 0,
                   flexGrow: 0 
                 }}
@@ -517,18 +571,16 @@ const PodcastView: React.FC<PodcastViewProps> = ({ onRefresh, tabNavigator, onPl
                 {renderPodcastCard(podcast, false)}
               </div>
             ))}
-            {/* Extra div showing 20% of next card to indicate scrollability */}
+            {/* Last div to ensure proper spacing - fully visible card */}
             {limitedPodcasts.length > 2 && (
               <div 
-                className="w-[18%] min-w-[18%] flex-shrink-0 opacity-90"
+                className="w-[10px] min-w-[10px] flex-shrink-0"
                 style={{ 
-                  flexBasis: '18%', 
+                  flexBasis: '10px', 
                   flexShrink: 0,
                   flexGrow: 0 
                 }}
-              >
-                {renderPodcastCard(limitedPodcasts[Math.min(limitedPodcasts.length - 1, 2)], false)}
-              </div>
+              />
             )}
           </div>
         </div>
@@ -592,14 +644,14 @@ const PodcastView: React.FC<PodcastViewProps> = ({ onRefresh, tabNavigator, onPl
         
         {/* Single loading spinner in the middle of the screen */}
         <div className="h-full flex flex-col items-center justify-center bg-black">
-          <div className="flex items-center justify-center space-x-3 px-6">
+          <div className="flex flex-col items-center justify-center space-y-4 px-6 text-center">
             <div 
-              className="w-6 h-6 border-2 border-t-transparent border-white rounded-full animate-spin"
+              className="w-8 h-8 border-2 border-t-transparent border-white rounded-full animate-spin"
             />
             <p 
-              className="text-lg text-white font-space"
+              className="text-xl text-white font-space"
             >
-              Loading podcasts...
+              Loading podcasts
             </p>
           </div>
         </div>

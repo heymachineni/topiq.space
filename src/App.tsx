@@ -356,7 +356,8 @@ const App: React.FC = () => {
             onRefresh={loadNewEpisodes}
             tabNavigator={tabNavigator}
             onPlayPodcast={playPodcast}
-            isPodcastPlaying={!!currentlyPlaying}
+            isPodcastPlaying={isPlaying}
+            currentlyPlayingId={currentlyPlaying?.id}
           />
         )}
       </div>
