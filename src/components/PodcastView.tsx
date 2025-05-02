@@ -472,10 +472,16 @@ const PodcastView: React.FC<PodcastViewProps> = ({ onRefresh, tabNavigator, onPl
     // Check if this podcast is currently playing
     const isPlaying = currentlyPlayingId === podcast.id && isPodcastPlaying;
     
+    // Handle play button click separately from card click
+    const handlePlayButtonClick = (e: React.MouseEvent) => {
+      e.stopPropagation(); // Prevent card click from triggering
+      onPlayPodcast(podcast);
+    };
+    
     return (
       <div 
         key={podcast.id} 
-        className={`group relative rounded-xl shadow-sm bg-white dark:bg-gray-800 overflow-hidden hover:shadow-lg transition-all duration-200 ${isWide ? 'w-64 flex-shrink-0' : 'w-full'} hover:scale-95 transform transition-transform duration-300 cursor-pointer h-full`}
+        className={`group relative rounded-xl shadow-sm bg-white dark:bg-gray-800 overflow-hidden hover:shadow-lg transition-all duration-200 ${isWide ? 'w-64 flex-shrink-0' : 'w-full'} hover:scale-95 transform transition-transform duration-300 cursor-pointer h-full ${isPlaying ? 'ring-2 ring-purple-500 ring-opacity-70' : ''}`}
         onClick={() => onPlayPodcast(podcast)}
       >
         {/* Image */}
@@ -488,9 +494,12 @@ const PodcastView: React.FC<PodcastViewProps> = ({ onRefresh, tabNavigator, onPl
           />
           <div className="absolute bottom-0 left-0 right-0 h-20 bg-gradient-to-t from-black/70 to-transparent" />
           
-          {/* Play button overlay */}
-          <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-            <div className="bg-black bg-opacity-60 p-4 rounded-full">
+          {/* Play button overlay - always visible on mobile with reduced opacity */}
+          <div className="absolute inset-0 flex items-center justify-center sm:opacity-0 opacity-20 sm:group-hover:opacity-100 transition-opacity duration-200">
+            <div 
+              className="bg-black bg-opacity-60 p-4 rounded-full cursor-pointer"
+              onClick={handlePlayButtonClick}
+            >
               {isPlaying ? (
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white" className="w-8 h-8">
                   <path fillRule="evenodd" d="M6.75 5.25a.75.75 0 01.75-.75H9a.75.75 0 01.75.75v13.5a.75.75 0 01-.75.75H7.5a.75.75 0 01-.75-.75V5.25zm7.5 0A.75.75 0 0115 4.5h1.5a.75.75 0 01.75.75v13.5a.75.75 0 01-.75.75H15a.75.75 0 01-.75-.75V5.25z" clipRule="evenodd" />
@@ -836,11 +845,10 @@ const PodcastView: React.FC<PodcastViewProps> = ({ onRefresh, tabNavigator, onPl
         {/* Search pill - positioned absolutely at bottom and adjusted when podcast is playing */}
         <div className="pointer-events-none w-full h-0">
           <div 
-            className={`absolute left-0 right-0 flex justify-center ${isPodcastPlaying ? 'podcast-playing' : ''}`}
+            className="absolute left-0 right-0 flex justify-center transition-all duration-300"
             style={{
-              bottom: isPodcastPlaying ? '100px !important' : '20px',
+              bottom: isPodcastPlaying ? '100px' : '20px',
               position: 'fixed',
-              transition: 'all 0.3s ease',
               zIndex: 50,
             }}
           >
