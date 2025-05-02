@@ -140,6 +140,18 @@ body {
   @apply bg-primary-400 dark:bg-primary-600 rounded-full;
 }
 
+/* Hide scrollbar class for horizontal scroll elements */
+.hide-scrollbar {
+  -ms-overflow-style: none;  /* Internet Explorer and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;  /* Chrome, Safari and Opera */
+  width: 0;
+  height: 0;
+}
+
 /* Topic Pills */
 .topic-pill {
   @apply px-4 py-0 rounded-full text-sm font-garamond font-medium transition-all duration-200 

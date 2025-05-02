@@ -11,12 +11,10 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
+  optimizeFonts: true,
   experimental: {
-    // This is experimental but allows for custom document in compatibility with static export
-    optimizeFonts: true,
-  },
-  // Ensure Next.js doesn't attempt to render pages on the server during export
-  target: 'serverless',
+    // Other experimental features can go here
+  }
 };
 
 module.exports = nextConfig; 

@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { WikipediaArticle } from '../types';
 import { XMarkIcon } from '@heroicons/react/24/outline';
 import useScrollLock from '../hooks/useScrollLock';
+import OptimizedImage from './OptimizedImage';
 
 // Modal wrapper component to handle scroll locking
 export const ModalWrapper: React.FC<{
@@ -100,6 +101,14 @@ export const getSourceBadge = (article: WikipediaArticle) => {
   return { label: 'Source', color: 'from-gray-500 to-gray-700' };
 };
 
+// Add the truncation utility function after the getSourceBadge function
+export const truncateToWords = (text: string, maxWords: number): string => {
+  if (!text) return '';
+  const words = text.split(/\s+/);
+  if (words.length <= maxWords) return text;
+  return words.slice(0, maxWords).join(' ') + '...';
+};
+
 // About modal component
 export const AboutModal = ({ isOpen, onClose }: { isOpen: boolean, onClose: () => void }) => {
   if (!isOpen) return null;
@@ -123,8 +132,8 @@ export const AboutModal = ({ isOpen, onClose }: { isOpen: boolean, onClose: () =
       {/* Middle section - Description */}
       <div className="px-5 py-6 flex-grow overflow-y-auto modal-scrollable-content" data-scroll-allowed="true">
   <p className="font-space text-white/90 leading-relaxed">
-    Explore the world with topiq — a new way to learn, stay updated, and get inspired.
-    From Wikipedia to Reddit, headlines to podcasts — it’s all here.<br />
+    Explore the world with topiq — a new way to stay updated, and get inspired.
+    From Wikipedia to Reddit, headlines to podcasts — it's all here.<br />
     Fast. Thoughtful. Made for how we think today.
   </p>
 </div>
@@ -248,13 +257,10 @@ export const LikesModal = ({ isOpen, onClose, likedArticles }: {
                 {/* Article image */}
                 <div className="w-full h-40 relative">
                   {article.thumbnail ? (
-                    <img 
+                    <OptimizedImage 
                       src={article.thumbnail.source} 
                       alt={article.title}
                       className="w-full h-full object-cover"
-                      onError={(e) => {
-                        (e.target as HTMLImageElement).src = 'https://via.placeholder.com/300x200?text=No+Image';
-                      }}
                     />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-gray-700 to-gray-900">
@@ -303,8 +309,8 @@ export const LikesModal = ({ isOpen, onClose, likedArticles }: {
                   {article.extract && (
                     <p className="text-white/60 text-xs line-clamp-3">
                       {article.source === 'hackernews' 
-                        ? article.extract.replace(/<[^>]*>/g, '').replace(/\d+ points \| \d+ comments/, '').trim()
-                        : article.extract}
+                        ? truncateToWords(article.extract.replace(/<[^>]*>/g, '').replace(/\d+ points \| \d+ comments/, '').trim(), 50)
+                        : truncateToWords(article.extract, 50)}
                     </p>
                   )}
                 </div>

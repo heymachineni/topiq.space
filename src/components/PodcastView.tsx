@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { PodcastEpisode } from '../types';
-import { XMarkIcon, MagnifyingGlassIcon, ArrowLeftIcon } from '@heroicons/react/24/outline';
+import { XMarkIcon, MagnifyingGlassIcon, ArrowLeftIcon, ChevronDownIcon, ChevronUpIcon } from '@heroicons/react/24/outline';
 import { AboutModal, LikesModal } from './Modals';
 
 interface PodcastViewProps {
@@ -17,7 +17,33 @@ interface PodcastCategory {
   title: string;
   podcasts: PodcastEpisode[];
   loading: boolean;
+  isExpanded?: boolean; // For mobile collapsible UI
 }
+
+const OptimizedImage = ({ src, alt, className, fallback }: { 
+  src: string, 
+  alt: string, 
+  className: string,
+  fallback?: string 
+}) => {
+  // Use direct image URL without messing with WebP conversion
+  const defaultFallback = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iODAwIiBoZWlnaHQ9IjYwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iODAwIiBoZWlnaHQ9IjYwMCIgZmlsbD0iI2YwZjBmMCIvPjx0ZXh0IHg9IjQwMCIgeT0iMzAwIiBmb250LWZhbWlseT0iQXJpYWwiIGZvbnQtc2l6ZT0iMzAiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZpbGw9IiM5OTk5OTkiPkltYWdlIG5vdCBhdmFpbGFibGU8L3RleHQ+PC9zdmc+';
+  
+  return (
+    <img 
+      src={src}
+      alt={alt}
+      loading="lazy"
+      decoding="async" 
+      className={className}
+      onError={(e) => {
+        const target = e.target as HTMLImageElement;
+        target.onerror = null;
+        target.src = fallback || defaultFallback;
+      }}
+    />
+  );
+};
 
 const PodcastView: React.FC<PodcastViewProps> = ({ onRefresh, tabNavigator, onPlayPodcast, isPodcastPlaying = false }) => {
   // Main state
@@ -30,18 +56,36 @@ const PodcastView: React.FC<PodcastViewProps> = ({ onRefresh, tabNavigator, onPl
   const [allLoaded, setAllLoaded] = useState(false);
   
   // Categories state - each category will have its own podcasts and loading state
-  const [categories, setCategories] = useState<PodcastCategory[]>([
-    { id: 'newNoteworthy', title: 'New & Noteworthy', podcasts: [], loading: true },
-    { id: 'topEpisodes', title: 'Top Episodes', podcasts: [], loading: true },
-    { id: 'everyoneTalking', title: 'Everyone\'s Talking About', podcasts: [], loading: true },
-    { id: 'musicallyInclined', title: 'Musically Inclined', podcasts: [], loading: true }
-  ]);
+  const [categories, setCategories] = useState<PodcastCategory[]>([]);
   
-  // Famous podcasters state
+  // Famous podcasters state - update to include all podcasters in the requested order
   const [famousPodcasters, setFamousPodcasters] = useState<PodcastCategory[]>([
-    { id: 'lexFridman', title: 'Lex Fridman Podcast', podcasts: [], loading: true },
-    { id: 'joeRogan', title: 'The Joe Rogan Experience', podcasts: [], loading: true },
-    { id: 'hubermanLab', title: 'Huberman Lab', podcasts: [], loading: true }
+    { id: 'lexFridman', title: 'Lex Fridman Podcast', podcasts: [], loading: true, isExpanded: true },
+    { id: 'joeRogan', title: 'The Joe Rogan Experience', podcasts: [], loading: true, isExpanded: true },
+    { id: 'hubermanLab', title: 'Huberman Lab', podcasts: [], loading: true, isExpanded: true },
+    { id: 'nikhilKamath', title: 'WTF is with Nikhil Kamath', podcasts: [], loading: true, isExpanded: true },
+    { id: 'waveform', title: 'Waveform: The MKBHD Podcast', podcasts: [], loading: true, isExpanded: true },
+    { id: 'tedTalks', title: 'TED Talks Daily', podcasts: [], loading: true, isExpanded: true },
+    { id: 'ninetyNineInvisible', title: '99% Invisible', podcasts: [], loading: true, isExpanded: true },
+    { id: 'uxCoffeeBreak', title: 'UX coffee break with UX Anudeep', podcasts: [], loading: true, isExpanded: true },
+    { id: 'intercomOnProduct', title: 'Intercom on Product', podcasts: [], loading: true, isExpanded: true },
+    { id: 'datelineNbc', title: 'Dateline NBC', podcasts: [], loading: true, isExpanded: true },
+    { id: 'wvfrm', title: 'WVFRM', podcasts: [], loading: true, isExpanded: true },
+    { id: 'smartLess', title: 'SmartLess', podcasts: [], loading: true, isExpanded: true },
+    { id: 'thisAmericanLife', title: 'This American Life', podcasts: [], loading: true, isExpanded: true },
+    { id: 'morbid', title: 'Morbid', podcasts: [], loading: true, isExpanded: true },
+    { id: 'crimeJunkie', title: 'Crime Junkie', podcasts: [], loading: true, isExpanded: true },
+    { id: 'upFirst', title: 'Up First', podcasts: [], loading: true, isExpanded: true },
+    { id: 'hiddenBrain', title: 'Hidden Brain', podcasts: [], loading: true, isExpanded: true },
+    { id: 'puriJagannadh', title: 'Puri Jagannadh', podcasts: [], loading: true, isExpanded: true },
+    { id: 'stuffYouShouldKnow', title: 'Stuff You Should Know', podcasts: [], loading: true, isExpanded: true },
+    { id: 'callHerDaddy', title: 'Call Her Daddy', podcasts: [], loading: true, isExpanded: true },
+    { id: 'emmaChamberlain', title: 'Anything Goes with Emma Chamberlain', podcasts: [], loading: true, isExpanded: true },
+    { id: 'onPurpose', title: 'On Purpose with Jay Shetty', podcasts: [], loading: true, isExpanded: true },
+    { id: 'diaryOfACeo', title: 'The Diary Of A CEO with Steven Bartlett', podcasts: [], loading: true, isExpanded: true },
+    { id: 'wiserThanMe', title: 'Wiser Than Me with Julia Louis-Dreyfus', podcasts: [], loading: true, isExpanded: true },
+    { id: 'newHeights', title: 'New Heights with Jason & Travis Kelce', podcasts: [], loading: true, isExpanded: true },
+    { id: 'heavyweight', title: 'Heavyweight', podcasts: [], loading: true, isExpanded: true }
   ]);
   
   // Ref for bottom observer
@@ -81,38 +125,40 @@ const PodcastView: React.FC<PodcastViewProps> = ({ onRefresh, tabNavigator, onPl
   const loadAllPodcastCategories = async () => {
     setLoading(true);
     
-    // First load original trending podcasts
     try {
-      const trendingPodcasts = await onRefresh();
-      
-      // Filter out Lex Fridman, Joe Rogan, and Huberman Lab podcasts from mixed category
-      const filteredPodcasts = trendingPodcasts.filter(podcast => {
-        const podcastTitle = podcast.feedTitle?.toLowerCase() || '';
-        return !podcastTitle.includes('lex fridman') && 
-               !podcastTitle.includes('joe rogan') && 
-               !podcastTitle.includes('huberman lab');
-      });
-      
-      setAllPodcasts(filteredPodcasts);
-      
-      // Trending podcasts will only show in Mixed section now
+      // Load all famous podcasters
+      loadFamousPodcaster('lexFridman', 'lex fridman');
+      loadFamousPodcaster('joeRogan', 'joe rogan');
+      loadFamousPodcaster('hubermanLab', 'huberman lab');
+      loadFamousPodcaster('nikhilKamath', 'wtf is with nikhil kamath');
+      loadFamousPodcaster('waveform', 'waveform: the mkbhd podcast');
+      loadFamousPodcaster('tedTalks', 'ted talks daily');
+      loadFamousPodcaster('ninetyNineInvisible', '99% invisible');
+      loadFamousPodcaster('uxCoffeeBreak', 'ux coffee break with ux anudeep');
+      loadFamousPodcaster('intercomOnProduct', 'intercom on product');
+      loadFamousPodcaster('datelineNbc', 'dateline nbc');
+      loadFamousPodcaster('wvfrm', 'wvfrm');
+      loadFamousPodcaster('smartLess', 'smartless');
+      loadFamousPodcaster('thisAmericanLife', 'this american life');
+      loadFamousPodcaster('morbid', 'morbid');
+      loadFamousPodcaster('crimeJunkie', 'crime junkie');
+      loadFamousPodcaster('upFirst', 'up first');
+      loadFamousPodcaster('hiddenBrain', 'hidden brain');
+      loadFamousPodcaster('puriJagannadh', 'puri jagannadh');
+      loadFamousPodcaster('stuffYouShouldKnow', 'stuff you should know');
+      loadFamousPodcaster('callHerDaddy', 'call her daddy');
+      loadFamousPodcaster('emmaChamberlain', 'anything goes with emma chamberlain');
+      loadFamousPodcaster('onPurpose', 'on purpose with jay shetty');
+      loadFamousPodcaster('diaryOfACeo', 'the diary of a ceo with steven bartlett');
+      loadFamousPodcaster('wiserThanMe', 'wiser than me with julia louis-dreyfus');
+      loadFamousPodcaster('newHeights', 'new heights with jason & travis kelce');
+      loadFamousPodcaster('heavyweight', 'heavyweight');
     } catch (error) {
-      console.error('Error loading trending podcasts:', error);
+      console.error('Error loading podcasters:', error);
       setError(error instanceof Error ? error : new Error('Failed to load podcasts'));
     } finally {
       setLoading(false);
     }
-    
-    // Load famous podcasters 
-    loadFamousPodcaster('lexFridman', 'lex fridman');
-    loadFamousPodcaster('joeRogan', 'joe rogan');
-    loadFamousPodcaster('hubermanLab', 'huberman lab');
-    
-    // Load other categories
-    loadCategoryPodcasts('newNoteworthy', 'new');
-    loadCategoryPodcasts('topEpisodes', 'episodes');
-    loadCategoryPodcasts('everyoneTalking', 'popular');
-    loadCategoryPodcasts('musicallyInclined', 'music');
   };
   
   // Update a specific category with podcasts
@@ -131,7 +177,18 @@ const PodcastView: React.FC<PodcastViewProps> = ({ onRefresh, tabNavigator, onPl
     setFamousPodcasters(prev => 
       prev.map(podcaster => 
         podcaster.id === podcasterId 
-          ? { ...podcaster, podcasts, loading: false }
+          ? { ...podcaster, podcasts: podcasts.slice(0, 10), loading: false } // Only keep first 10 episodes for UI
+          : podcaster
+      )
+    );
+  };
+  
+  // Toggle category expansion for mobile UI
+  const toggleCategoryExpansion = (podcasterId: string) => {
+    setFamousPodcasters(prev => 
+      prev.map(podcaster => 
+        podcaster.id === podcasterId 
+          ? { ...podcaster, isExpanded: !podcaster.isExpanded }
           : podcaster
       )
     );
@@ -142,6 +199,16 @@ const PodcastView: React.FC<PodcastViewProps> = ({ onRefresh, tabNavigator, onPl
     try {
       // Create static data for local development
       const podcastCount = Math.floor(Math.random() * 6) + 5; // 5-10 podcasts
+      
+      // Use a variety of working audio URLs for testing
+      const sampleAudioUrls = [
+        "https://www.learningcontainer.com/wp-content/uploads/2020/02/Kalimba.mp3", // Sample audio file
+        "https://samplelib.com/lib/preview/mp3/sample-3s.mp3", // Very short sample
+        "https://samplelib.com/lib/preview/mp3/sample-9s.mp3", // Short sample
+        "https://samplelib.com/lib/preview/mp3/sample-15s.mp3", // Medium sample
+        "https://filesamples.com/samples/audio/mp3/sample3.mp3", // Alternative source
+      ];
+      
       const podcasts: PodcastEpisode[] = Array(podcastCount).fill(null).map((_, index) => ({
         id: Math.floor(Math.random() * 100000) + 1000 + index,
         title: `${searchTerm.charAt(0).toUpperCase() + searchTerm.slice(1)} Podcast ${index + 1}`,
@@ -153,70 +220,10 @@ const PodcastView: React.FC<PodcastViewProps> = ({ onRefresh, tabNavigator, onPl
         feedTitle: `${searchTerm.charAt(0).toUpperCase() + searchTerm.slice(1)} Network`,
         feedUrl: "https://example.com/feed",
         feedImage: `https://source.unsplash.com/random/100x100?${searchTerm},logo&sig=${categoryId}`,
-        audio: "https://rss.art19.com/episodes/01a3a482-c8e0-4bf6-b0af-f002f0a3a86a.mp3" // Sample audio URL
+        audio: sampleAudioUrls[index % sampleAudioUrls.length] // Rotate through sample URLs
       }));
       
       updateCategoryPodcasts(categoryId, podcasts);
-      
-      /* Original API implementation commented out
-      const genreParam = 
-        categoryId === 'musicallyInclined' ? '&genreId=1310' : 
-        categoryId === 'topCharts' ? '&genreId=26' : '';
-      
-      const response = await fetch(
-        `https://itunes.apple.com/search?term=${encodeURIComponent(searchTerm)}&media=podcast&entity=podcast${genreParam}&limit=20`
-      );
-      const data = await response.json();
-      
-      if (data.results.length > 0) {
-        // For podcast shows, we'll just get the shows and populate with placeholder episodes
-        const podcasts: PodcastEpisode[] = await Promise.all(
-          data.results.slice(0, 10).map(async (podcast: any) => {
-            // Try to get at least one episode for each show
-            try {
-              const episodesResponse = await fetch(
-                `https://itunes.apple.com/lookup?id=${podcast.collectionId}&entity=podcastEpisode&limit=1`
-              );
-              const episodesData = await episodesResponse.json();
-              
-              if (episodesData.results.length > 1) {
-                const episode = episodesData.results[1]; // Index 1 is the first episode
-                return {
-                  id: episode.trackId,
-                  title: episode.trackName,
-                  description: episode.description || '',
-                  url: episode.trackViewUrl,
-                  datePublished: new Date(episode.releaseDate).toLocaleDateString(),
-                  duration: episode.trackTimeMillis ? Math.floor(episode.trackTimeMillis / 1000) : '',
-                  image: podcast.artworkUrl600 || podcast.artworkUrl100,
-                  feedTitle: podcast.collectionName,
-                  feedUrl: podcast.feedUrl || '',
-                  audio: episode.previewUrl || ''
-                };
-              }
-            } catch (e) {
-              console.error('Error fetching episode:', e);
-            }
-            
-            // Fallback if we can't get an episode
-            return {
-              id: podcast.collectionId,
-              title: podcast.collectionName,
-              description: podcast.description || '',
-              url: podcast.collectionViewUrl,
-              datePublished: new Date(podcast.releaseDate).toLocaleDateString(),
-              duration: '',
-              image: podcast.artworkUrl600 || podcast.artworkUrl100,
-              feedTitle: podcast.collectionName,
-              feedUrl: podcast.feedUrl || '',
-              audio: ''
-            };
-          })
-        );
-        
-        updateCategoryPodcasts(categoryId, podcasts);
-      }
-      */
     } catch (error) {
       console.error(`Error loading ${categoryId} podcasts:`, error);
       updateCategoryPodcasts(categoryId, []);
@@ -226,63 +233,70 @@ const PodcastView: React.FC<PodcastViewProps> = ({ onRefresh, tabNavigator, onPl
   // Load famous podcaster episodes
   const loadFamousPodcaster = async (podcasterId: string, searchTerm: string) => {
     try {
-      // Create static data for famous podcasters
-      const episodeCount = Math.floor(Math.random() * 6) + 15; // 15-20 episodes
+      // Fetch from the podcast-data.json file in the public directory
+      console.log(`Attempting to fetch podcast data for ${podcasterId} (${searchTerm})`);
+      
+      // In Next.js, files in the public directory are served from the root path
+      const response = await fetch('/podcast-data.json');
+      
+      console.log(`Fetch response status for ${podcasterId}:`, response.status, response.statusText);
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch podcast data: ${response.status}`);
+      }
+      
+      const allPodcasts = await response.json();
+      console.log(`Fetched ${allPodcasts.length} total podcasts from JSON file`);
+      
+      // Filter podcasts by name matching the search term
       const podcasterName = searchTerm.split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+      const podcasts = allPodcasts.filter((podcast: PodcastEpisode) => 
+        podcast.name?.toLowerCase().includes(searchTerm.toLowerCase())
+      );
+      
+      console.log(`Found ${podcasts.length} podcasts matching "${searchTerm}"`);
+      if (podcasts.length > 0) {
+        console.log(`First matching podcast:`, podcasts[0]);
+        console.log(`Audio URL present: ${Boolean(podcasts[0].audio)}`);
+        console.log(`Image URL present: ${Boolean(podcasts[0].image)}`);
+        updateFamousPodcasterPodcasts(podcasterId, podcasts);
+      } else {
+        console.warn(`No podcasts found for ${podcasterName}`);
+        updateFamousPodcasterPodcasts(podcasterId, []);
+      }
+    } catch (error) {
+      console.error(`Error loading ${podcasterId} podcasts:`, error);
+      updateFamousPodcasterPodcasts(podcasterId, []);
+      
+      // Create static fallback data
+      console.log(`Creating fallback data for ${podcasterId}`);
+      const episodeCount = 5;
+      const podcasterName = searchTerm.split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+      
+      // Use a variety of working audio URLs for testing
+      const sampleAudioUrls = [
+        "https://www.learningcontainer.com/wp-content/uploads/2020/02/Kalimba.mp3", // Sample audio file
+        "https://samplelib.com/lib/preview/mp3/sample-3s.mp3", // Very short sample
+        "https://samplelib.com/lib/preview/mp3/sample-9s.mp3", // Short sample
+        "https://samplelib.com/lib/preview/mp3/sample-15s.mp3", // Medium sample
+        "https://filesamples.com/samples/audio/mp3/sample3.mp3", // Alternative source
+      ];
       
       const episodes: PodcastEpisode[] = Array(episodeCount).fill(null).map((_, index) => ({
         id: Math.floor(Math.random() * 100000) + 2000 + index,
         title: `${podcasterName} #${episodeCount - index}: ${['AI', 'Science', 'Philosophy', 'Tech', 'History'][Math.floor(Math.random() * 5)]} Discussion`,
         description: `${podcasterName} discusses fascinating topics with a special guest in this episode.`,
         url: "https://example.com/podcast",
-        datePublished: new Date(Date.now() - index * 7 * 24 * 60 * 60 * 1000).toLocaleDateString(), // Each episode a week apart
-        duration: `${Math.floor(Math.random() * 120) + 40}:00`, // 40-160 minutes
-        image: `https://source.unsplash.com/random/400x400?${searchTerm},podcast&sig=${podcasterId}`,
-        feedTitle: `The ${podcasterName} Podcast`,
+        datePublished: new Date(Date.now() - index * 7 * 24 * 60 * 60 * 1000).toLocaleDateString(),
+        duration: `${Math.floor(Math.random() * 120) + 30}:00`,
+        image: `https://picsum.photos/400/400?random=${podcasterId}${index}`,
+        feedTitle: podcasterName,
         feedUrl: "https://example.com/feed",
-        feedImage: `https://source.unsplash.com/random/100x100?${searchTerm},logo&sig=${podcasterId}`,
-        audio: "https://rss.art19.com/episodes/01a3a482-c8e0-4bf6-b0af-f002f0a3a86a.mp3" // Sample audio URL
+        feedImage: `https://picsum.photos/100/100?random=${podcasterId}`,
+        audio: sampleAudioUrls[index % sampleAudioUrls.length] // Rotate through sample URLs
       }));
       
       updateFamousPodcasterPodcasts(podcasterId, episodes);
-      
-      /* Original API implementation commented out
-      const response = await fetch(
-        `https://itunes.apple.com/search?term=${encodeURIComponent(searchTerm)}&entity=podcast&limit=1`
-      );
-      const data = await response.json();
-      
-      if (data.results.length > 0) {
-        const podcastId = data.results[0].collectionId;
-        
-        // Get episodes from the podcast
-        const episodesResponse = await fetch(
-          `https://itunes.apple.com/lookup?id=${podcastId}&entity=podcastEpisode&limit=20`
-        );
-        const episodesData = await episodesResponse.json();
-        
-        // Transform to our format - skip the first result as it's the podcast itself
-        const episodes: PodcastEpisode[] = episodesData.results
-          .slice(1) // Skip the podcast entry, get only episodes
-          .map((item: any) => ({
-            id: item.trackId,
-            title: item.trackName,
-            description: item.description || '',
-            url: item.trackViewUrl,
-            datePublished: new Date(item.releaseDate).toLocaleDateString(),
-            duration: item.trackTimeMillis ? Math.floor(item.trackTimeMillis / 1000) : '',
-            image: item.artworkUrl600 || item.artworkUrl100,
-            feedTitle: data.results[0].collectionName,
-            feedUrl: item.feedUrl || '',
-            audio: item.previewUrl || ''
-          }));
-        
-        updateFamousPodcasterPodcasts(podcasterId, episodes);
-      }
-      */
-    } catch (error) {
-      console.error(`Error loading ${podcasterId} podcasts:`, error);
-      updateFamousPodcasterPodcasts(podcasterId, []);
     }
   };
   
@@ -314,24 +328,15 @@ const PodcastView: React.FC<PodcastViewProps> = ({ onRefresh, tabNavigator, onPl
         // Filter out duplicates from new podcasts
         const newPodcasts = morePodcasts.filter(p => !existingIds.has(p.id));
         
-        // Filter out Lex Fridman, Joe Rogan, and Huberman Lab podcasts from mixed category
-        const filteredPodcasts = newPodcasts.filter(podcast => {
-          // Check if the podcast's feedTitle contains any of the excluded podcaster names
-          const podcastTitle = podcast.feedTitle?.toLowerCase() || '';
-          return !podcastTitle.includes('lex fridman') && 
-                 !podcastTitle.includes('joe rogan') && 
-                 !podcastTitle.includes('huberman lab');
-        });
-        
-        console.log(`Loaded ${morePodcasts.length} podcasts, ${filteredPodcasts.length} are new (after filtering)`);
+        console.log(`Loaded ${morePodcasts.length} podcasts, ${newPodcasts.length} are new`);
         
         // If no new podcasts were returned, we've reached the end
-        if (filteredPodcasts.length === 0) {
+        if (newPodcasts.length === 0) {
           setAllLoaded(true);
           console.log('All podcasts loaded, no more to fetch');
         }
         
-        return [...prev, ...filteredPodcasts];
+        return [...prev, ...newPodcasts];
       });
     } catch (error) {
       console.error('Error loading more podcasts:', error);
@@ -424,93 +429,114 @@ const PodcastView: React.FC<PodcastViewProps> = ({ onRefresh, tabNavigator, onPl
 
   // Render a podcast card - extracted for reuse
   const renderPodcastCard = (podcast: PodcastEpisode, isWide: boolean = false) => (
-    <motion.div
-      key={podcast.id}
-      className="flex-shrink-0 w-full bg-white/5 rounded-lg overflow-hidden hover:bg-white/10 transition-all h-full"
-      whileHover={{ scale: 1.02 }}
-      whileTap={{ scale: 0.98 }}
+    <div 
+      key={podcast.id} 
+      className={`group relative rounded-xl shadow-sm bg-white dark:bg-gray-800 overflow-hidden hover:shadow-lg transition-all duration-200 ${isWide ? 'w-64 flex-shrink-0' : 'w-full'} hover:scale-95 transform transition-transform duration-300 cursor-pointer`}
+      onClick={() => onPlayPodcast(podcast)}
     >
-      <div className="relative aspect-square">
-        {podcast.image ? (
-          <img 
-            src={podcast.image} 
-            alt={podcast.title} 
-            className="w-full h-full object-cover"
-            loading="lazy"
-            decoding="async"
-            crossOrigin="anonymous"
-            onError={(e) => {
-              console.log('Image load error, using fallback', podcast.title);
-              (e.target as HTMLImageElement).src = 'https://via.placeholder.com/300x300?text=Podcast';
-            }}
-          />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center bg-purple-900">
-            <span className="text-3xl">🎙️</span>
-          </div>
-        )}
+      {/* Image */}
+      <div className="relative w-full aspect-square">
+        <OptimizedImage
+          src={podcast.image || podcast.feedImage || ''}
+          alt={podcast.title}
+          className="w-full h-full object-cover"
+          fallback={podcast.feedImage}
+        />
+        <div className="absolute bottom-0 left-0 right-0 h-20 bg-gradient-to-t from-black/70 to-transparent" />
         
         {/* Play button overlay */}
-        <button 
-          className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 hover:opacity-100 transition-opacity"
-          onClick={() => onPlayPodcast(podcast)}
-        >
-          <div className="w-10 h-10 rounded-full bg-purple-600 flex items-center justify-center">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+        <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+          <div className="bg-black bg-opacity-60 p-4 rounded-full">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white" className="w-8 h-8">
+              <path fillRule="evenodd" d="M4.5 5.653c0-1.426 1.529-2.33 2.779-1.643l11.54 6.348c1.295.712 1.295 2.573 0 3.285L7.28 19.991c-1.25.687-2.779-.217-2.779-1.643V5.653z" clipRule="evenodd" />
             </svg>
           </div>
-        </button>
+        </div>
+        
+        {/* Duration */}
+        <div className="absolute bottom-2 right-2 bg-black bg-opacity-70 text-white px-2 py-1 rounded-full text-xs">
+          {podcast.duration || ''}
+        </div>
       </div>
       
-      <div className="p-2">
-        <h3 className="font-bold text-sm mb-1 line-clamp-1">{podcast.title}</h3>
-        <p className="text-white/70 text-xs line-clamp-1">{podcast.feedTitle}</p>
-        {podcast.duration && (
-          <div className="flex items-center text-xs text-white/50 mt-1">
-            <span className="line-clamp-1">
-              {typeof podcast.duration === 'string' 
-                ? podcast.duration 
-                : formatTime(Number(podcast.duration))}
-            </span>
-          </div>
-        )}
+      {/* Title and description - with gray background */}
+      <div className="p-3 bg-gray-100 dark:bg-gray-700">
+        <h3 className="text-sm font-semibold line-clamp-2 text-gray-900 dark:text-gray-100">
+          {podcast.title}
+        </h3>
+        {/* Date removed as requested */}
       </div>
-    </motion.div>
+    </div>
   );
 
-  // Render podcast category row
+  // Render podcast category row with collapsible UI for mobile
   const renderPodcastCategory = (category: PodcastCategory, isWide: boolean = false) => {
-    if (category.loading) {
-      return (
-        <div className="h-44 flex items-center justify-center">
-          <div className="w-5 h-5 border-2 border-t-transparent border-white/70 rounded-full animate-spin mr-3" />
-          <span className="text-white/70">Loading {category.title}...</span>
-        </div>
-      );
-    }
-    
-    if (category.podcasts.length === 0) {
+    // Don't render anything if there are no podcasts and we're not loading
+    if (!category.loading && category.podcasts.length === 0) {
       return null;
     }
     
-    // Limit to 10 podcasts for the 2-row layout
+    // Limit to 10 podcasts for the UI display
     const limitedPodcasts = category.podcasts.slice(0, 10);
     
     return (
       <div key={category.id} className="mb-8">
-        <h3 className="text-lg font-medium px-4 py-2 text-white/90">{category.title}</h3>
-        <div className="px-4">
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-5">
+        {/* Category header with collapsible toggle */}
+        <div 
+          className="flex justify-between items-center px-4 py-2 cursor-pointer sm:cursor-default"
+          onClick={() => toggleCategoryExpansion(category.id)}
+        >
+          <h3 className="text-lg font-medium text-white/90">{category.title}</h3>
+          {/* Chevron visible only on mobile - removed as requested */}
+        </div>
+        
+        {/* Desktop layout - normal grid */}
+        <div className="hidden sm:block px-4">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-5">
             {limitedPodcasts.map(podcast => renderPodcastCard(podcast, isWide))}
+          </div>
+        </div>
+        
+        {/* Mobile layout - horizontal scroll with 3 columns */}
+        <div className="sm:hidden px-4 overflow-x-auto hide-scrollbar">
+          <div className="flex space-x-4 pb-3 w-full" style={{ 
+            WebkitOverflowScrolling: 'touch',
+            scrollbarWidth: 'none',  /* Firefox */
+            msOverflowStyle: 'none'  /* IE and Edge */
+          }}>
+            {limitedPodcasts.map((podcast, index) => (
+              <div 
+                key={podcast.id} 
+                className="w-[42%] min-w-[42%] flex-shrink-0 first:ml-0"
+                style={{ 
+                  flexBasis: '42%', 
+                  flexShrink: 0,
+                  flexGrow: 0 
+                }}
+              >
+                {renderPodcastCard(podcast, false)}
+              </div>
+            ))}
+            {/* Extra div showing 20% of next card to indicate scrollability */}
+            {limitedPodcasts.length > 2 && (
+              <div 
+                className="w-[18%] min-w-[18%] flex-shrink-0 opacity-90"
+                style={{ 
+                  flexBasis: '18%', 
+                  flexShrink: 0,
+                  flexGrow: 0 
+                }}
+              >
+                {renderPodcastCard(limitedPodcasts[Math.min(limitedPodcasts.length - 1, 2)], false)}
+              </div>
+            )}
           </div>
         </div>
       </div>
     );
   };
   
-  // Set up intersection observer for infinite scroll in the Mixed category
+  // Set up intersection observer for infinite scroll
   useEffect(() => {
     if (!bottomObserverRef.current) return;
     
@@ -533,8 +559,8 @@ const PodcastView: React.FC<PodcastViewProps> = ({ onRefresh, tabNavigator, onPl
     };
   }, [loading, allLoaded, allPodcasts.length, loadMorePodcasts]);
   
-  // Loading state
-  if (loading && allPodcasts.length === 0 && categories.every(cat => cat.loading) && famousPodcasters.every(pod => pod.loading)) {
+  // Loading state - simplified to a single top-level loader
+  if (loading) {
     return (
       <div className="h-full w-full overflow-hidden bg-black text-white">
         {/* Header - keep it visible during loading */}
@@ -564,7 +590,7 @@ const PodcastView: React.FC<PodcastViewProps> = ({ onRefresh, tabNavigator, onPl
           </div>
         </div>
         
-        {/* Loading spinner in the middle of the screen */}
+        {/* Single loading spinner in the middle of the screen */}
         <div className="h-full flex flex-col items-center justify-center bg-black">
           <div className="flex items-center justify-center space-x-3 px-6">
             <div 
@@ -665,24 +691,9 @@ const PodcastView: React.FC<PodcastViewProps> = ({ onRefresh, tabNavigator, onPl
                   className="flex items-start p-3 border-b border-white/10 hover:bg-white/5 transition-colors cursor-pointer"
                   onClick={() => handleSearchResultClick(podcast)}
                 >
-                  {podcast.image ? (
-                    <img 
-                      src={podcast.image} 
-                      alt={podcast.title}
-                      className="w-16 h-16 rounded-md object-cover mr-3 flex-shrink-0"
-                      loading="lazy"
-                      decoding="async"
-                      crossOrigin="anonymous"
-                      onError={(e) => {
-                        console.log('Search result image load error, using fallback', podcast.title);
-                        (e.target as HTMLImageElement).src = 'https://via.placeholder.com/64?text=🎙️';
-                      }}
-                    />
-                  ) : (
                     <div className="w-16 h-16 bg-white/10 rounded-md flex items-center justify-center mr-3 flex-shrink-0">
                       <span className="text-2xl">🎙️</span>
                     </div>
-                  )}
                   
                   <div className="flex-1 min-w-0">
                     <h3 className="text-white font-medium line-clamp-2">{podcast.title}</h3>
@@ -741,47 +752,13 @@ const PodcastView: React.FC<PodcastViewProps> = ({ onRefresh, tabNavigator, onPl
         </div>
       </div>
       
-      {/* Podcast categories - reduce top padding to fix spacing */}
+      {/* Podcast categories - showing only the podcasters in the requested order */}
       <div className="h-full overflow-y-auto pb-24 pt-14 scrollbar-thin scrollbar-thumb-white/20 scrollbar-track-transparent">
-        {/* Render categories in the specific order requested */}
-        {/* 1. New & Noteworthy */}
-        {renderPodcastCategory(categories.find(c => c.id === 'newNoteworthy') || { id: 'newNoteworthy', title: 'New & Noteworthy', podcasts: [], loading: true })}
-        
-        {/* 2. Top Episodes */}
-        {renderPodcastCategory(categories.find(c => c.id === 'topEpisodes') || { id: 'topEpisodes', title: 'Top Episodes', podcasts: [], loading: true })}
-        
-        {/* 3. Lex Fridman */}
-        {renderPodcastCategory(famousPodcasters.find(c => c.id === 'lexFridman') || { id: 'lexFridman', title: 'Lex Fridman Podcast', podcasts: [], loading: true })}
-        
-        {/* 4. Joe Rogan */}
-        {renderPodcastCategory(famousPodcasters.find(c => c.id === 'joeRogan') || { id: 'joeRogan', title: 'The Joe Rogan Experience', podcasts: [], loading: true })}
-        
-        {/* 5. Huberman Lab */}
-        {renderPodcastCategory(famousPodcasters.find(c => c.id === 'hubermanLab') || { id: 'hubermanLab', title: 'Huberman Lab', podcasts: [], loading: true })}
-        
-        {/* 6. Everyone's Talking About */}
-        {renderPodcastCategory(categories.find(c => c.id === 'everyoneTalking') || { id: 'everyoneTalking', title: 'Everyone\'s Talking About', podcasts: [], loading: true })}
-        
-        {/* 7. Musically Inclined */}
-        {renderPodcastCategory(categories.find(c => c.id === 'musicallyInclined') || { id: 'musicallyInclined', title: 'Musically Inclined', podcasts: [], loading: true })}
-        
-        {/* 8. Mixed category with vertical layout for all podcasts - loaded in batches */}
-        {allPodcasts.length > 0 && (
-          <div className="mb-8">
-            <h3 className="text-lg font-medium px-4 py-2 text-white/90">Mixed</h3>
-            <div className="px-4">
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-5">
-                {allPodcasts.map(podcast => renderPodcastCard(podcast))}
-              </div>
-            </div>
-          </div>
-        )}
+        {/* Render all famous podcasters in the requested order */}
+        {famousPodcasters.map(podcaster => renderPodcastCategory(podcaster))}
         
         {/* Empty state */}
-        {allPodcasts.length === 0 && 
-          categories.every(cat => cat.podcasts.length === 0) && 
-          famousPodcasters.every(pod => pod.podcasts.length === 0) && 
-          !loading && (
+        {famousPodcasters.every(pod => pod.podcasts.length === 0) && !loading && (
             <div className="flex flex-col items-center justify-center h-64">
               <div className="text-5xl mb-4">🔍</div>
               <p className="text-xl mb-2">No podcasts found</p>
@@ -792,8 +769,7 @@ const PodcastView: React.FC<PodcastViewProps> = ({ onRefresh, tabNavigator, onPl
                 Refresh
               </button>
             </div>
-          )
-        }
+        )}
 
         {/* Loading indicator at bottom - this triggers infinite scroll */}
         <div ref={bottomObserverRef} className="py-8 flex justify-center">

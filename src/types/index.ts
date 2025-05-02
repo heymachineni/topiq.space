@@ -157,6 +157,7 @@ export interface PodcastEpisode {
   feedImage?: string;
   categories?: string[];
   audio?: string; // URL to the audio file
+  name?: string;  // Podcast name (e.g., "Lex Fridman Podcast")
 }
 
 export interface PodcastModalProps {
