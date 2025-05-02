@@ -364,6 +364,7 @@ const App: React.FC = () => {
             onPlayPodcast={playPodcast}
             isPodcastPlaying={isPlaying}
             currentlyPlayingId={currentlyPlaying?.id}
+            hasAudioPlayer={!!currentlyPlaying}
           />
         )}
       </div>

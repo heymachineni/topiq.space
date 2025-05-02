@@ -10,6 +10,7 @@ interface PodcastViewProps {
   onPlayPodcast: (podcast: PodcastEpisode) => void;
   isPodcastPlaying?: boolean;
   currentlyPlayingId?: number;
+  hasAudioPlayer?: boolean;
 }
 
 // Interface for podcast categories
@@ -46,7 +47,7 @@ const OptimizedImage = ({ src, alt, className, fallback }: {
   );
 };
 
-const PodcastView: React.FC<PodcastViewProps> = ({ onRefresh, tabNavigator, onPlayPodcast, isPodcastPlaying = false, currentlyPlayingId }) => {
+const PodcastView: React.FC<PodcastViewProps> = ({ onRefresh, tabNavigator, onPlayPodcast, isPodcastPlaying = false, currentlyPlayingId, hasAudioPlayer = false }) => {
   // Main state
   const [allPodcasts, setAllPodcasts] = useState<PodcastEpisode[]>([]);
   const [loading, setLoading] = useState(true);
@@ -842,12 +843,12 @@ const PodcastView: React.FC<PodcastViewProps> = ({ onRefresh, tabNavigator, onPl
           )}
         </div>
         
-        {/* Search pill - positioned absolutely at bottom and adjusted when podcast is playing */}
+        {/* Search pill - positioned absolutely at bottom and adjusted when audio player is open */}
         <div className="pointer-events-none w-full h-0">
           <div 
             className="absolute left-0 right-0 flex justify-center transition-all duration-300"
             style={{
-              bottom: isPodcastPlaying ? '100px' : '20px',
+              bottom: hasAudioPlayer ? '100px' : '20px',
               position: 'fixed',
               zIndex: 50,
             }}
