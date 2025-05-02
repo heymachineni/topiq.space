@@ -883,11 +883,11 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
     // Create an array of articles to preload
     const preloadArticleIndices = [];
     
-    // Next 5 articles (more important)
-    for (let i = 1; i <= 5; i++) {
+    // Next 15 articles (increased from 5 for better preloading)
+    for (let i = 1; i <= 15; i++) {
       const index = currentIndex + i;
       if (index < articles.length) {
-        preloadArticleIndices.push({index, priority: 'high'});
+        preloadArticleIndices.push({index, priority: i <= 5 ? 'high' : 'medium'});
       }
     }
     
@@ -895,7 +895,7 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
     for (let i = 1; i <= 5; i++) {
       const index = currentIndex - i;
       if (index >= 0) {
-        preloadArticleIndices.push({index, priority: 'medium'});
+        preloadArticleIndices.push({index, priority: 'low'});
       }
     }
     
@@ -913,16 +913,21 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
         preloadedImages.set(imgUrl, true);
         
         // Only preload if not already in browser cache
-        // Add slight delay for each consecutive image to avoid network contention
+        // Reduce delay for higher priority images
+        const delay = priority === 'high' ? i * 20 : i * 40; 
         setTimeout(() => {
           const img = new Image();
           
-          // Add loading attributes based on distance from current index
+          // Add loading attributes based on priority
           if (priority === 'high') {
             // Images closer to current get higher priority
             img.setAttribute('importance', 'high');
             img.loading = 'eager';
             img.fetchPriority = 'high';
+          } else if (priority === 'medium') {
+            img.setAttribute('importance', 'auto');
+            img.loading = 'eager';
+            img.fetchPriority = 'auto';
           } else {
             img.setAttribute('importance', 'low');
             img.loading = 'lazy';
@@ -940,7 +945,7 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
           
           // Set source last to start loading
           img.src = imgUrl;
-        }, i * 50); // Stagger loads for better performance
+        }, delay); // Reduced delay for better performance
       }
     });
   }, [currentIndex, articles]);
@@ -1362,13 +1367,6 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
                 <h2 className="text-4xl font-bold font-garamond mb-3 pr-16 text-white" style={{ fontSize: '24px', lineHeight: '1.2' }}>
                   {currentArticle.title}
                 </h2>
-                
-                {/* Description - Added margin top to create space and limit to 3 lines and 100 words */}
-                {currentArticle.description && currentArticle.source !== 'hackernews' && (
-                  <p className="text-white/80 italic font-space mb-3 mt-2 overflow-hidden line-clamp-3 text-ellipsis">
-                    {truncateToWords(currentArticle.description, 100)}
-                  </p>
-                )}
                 
                 {/* Extract */}
                 {currentArticle.extract && (

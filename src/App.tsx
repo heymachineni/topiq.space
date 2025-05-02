@@ -145,6 +145,12 @@ const App: React.FC = () => {
 
   // Audio player functions
   const playPodcast = (podcast: PodcastEpisode) => {
+    // Check if the same podcast is being tapped again - toggle pause/play
+    if (currentlyPlaying && currentlyPlaying.id === podcast.id) {
+      togglePlayPause();
+      return;
+    }
+    
     // Enhanced logging for debugging
     console.log('Attempting to play podcast:', {
       id: podcast.id,
@@ -356,7 +362,9 @@ const App: React.FC = () => {
             onRefresh={loadNewEpisodes}
             tabNavigator={tabNavigator}
             onPlayPodcast={playPodcast}
-            isPodcastPlaying={!!currentlyPlaying}
+            isPodcastPlaying={isPlaying}
+            currentlyPlayingId={currentlyPlaying?.id}
+            hasAudioPlayer={!!currentlyPlaying}
           />
         )}
       </div>
