@@ -63,10 +63,10 @@ interface Cache {
 }
 
 const API_CACHE: Record<string, Cache> = {};
-const CACHE_DURATION = 15 * 60 * 1000; // 15 minutes
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes (reduced from 15 minutes)
 
-// Cache timeout in ms (5 minutes)
-const CACHE_TIMEOUT = 5 * 60 * 1000;
+// Cache timeout in ms (2 minutes - reduced)
+const CACHE_TIMEOUT = 2 * 60 * 1000;
 
 // Helper to check if cache is valid
 const isCacheValid = (cacheKey: string): boolean => {
@@ -91,13 +91,19 @@ const getFromCacheOrFetch = async (cacheKey: string, fetchFn: () => Promise<any>
 };
 
 /**
- * Converts a thumbnail URL to a high-resolution version
+ * Converts a thumbnail URL to a high-resolution WebP version
+ * for faster loading while maintaining quality
  */
-export function getHighResImage(url: string): string | null {
-  if (!url) return null;
+export function getHighResImage(thumbnailOrUrl: string | { source: string; width?: number; height?: number }): { source: string; width?: number; height?: number } {
+  // Handle both string URL and thumbnail object formats
+  let url = typeof thumbnailOrUrl === 'string' ? thumbnailOrUrl : thumbnailOrUrl.source;
+  let width = typeof thumbnailOrUrl === 'object' ? thumbnailOrUrl.width : undefined;
+  let height = typeof thumbnailOrUrl === 'object' ? thumbnailOrUrl.height : undefined;
+  
+  if (!url) return { source: '', width, height };
   
   try {
-    // Wikipedia/Wikimedia images
+    // Wikipedia/Wikimedia images - convert to WebP
     if (url.includes('wikipedia.org') || url.includes('wikimedia.org')) {
       const urlObj = new URL(url);
       
@@ -113,40 +119,78 @@ export function getHighResImage(url: string): string | null {
             pathParts.splice(thumbIndex, 1);
           }
           urlObj.pathname = pathParts.join('/');
-          return `${urlObj.toString()}?width=800&cb=${Date.now()}`;
+          return { 
+            source: `${urlObj.toString()}?width=600&format=webp&cb=${Date.now()}`, 
+            width: 600,
+            height
+          };
         }
       }
       
-      // Not a thumb URL, just increase width
-      return `${url}?width=800&cb=${Date.now()}`;
+      // Not a thumb URL, add WebP format
+      return { 
+        source: `${url}?width=600&format=webp&cb=${Date.now()}`,
+        width: 600,
+        height
+      };
     }
     
-    // Reddit images
-    if (url.includes('redd.it')) {
-      // Remove size constraints in Reddit URLs
-      return url.replace(/\?width=\d+&height=\d+/, '')
-                .replace(/&amp;/, '&');
+    // Reddit images - use WebP if available
+    if (url.includes('redd.it') || url.includes('reddit.com')) {
+      // Reddit often has WebP versions already
+      // Remove all size constraints and compression parameters but keep WebP
+      let optimizedUrl = url.replace(/\?width=\d+&height=\d+/, '')
+                .replace(/&amp;/g, '&')
+                .replace(/&width=\d+/g, '')
+                .replace(/&height=\d+/g, '')
+                .replace(/&quality=\d+/g, '')
+                .replace(/&compress=\w+/g, '');
+      
+      // Add WebP if not already in the URL
+      if (!optimizedUrl.includes('format=webp') && !optimizedUrl.includes('.webp')) {
+        optimizedUrl = optimizedUrl.includes('?') 
+          ? `${optimizedUrl}&format=webp` 
+          : `${optimizedUrl}?format=webp`;
+      }
+      
+      return { source: optimizedUrl, width, height };
     }
     
-    // Imgur images
+    // Imgur images - get WebP version
     if (url.includes('imgur.com')) {
-      // For Imgur, ensure we get the large version
-      return url.replace(/\.jpg$/, 'l.jpg')
-                .replace(/\.png$/, 'l.png');
+      // Convert to WebP version if possible
+      let webpUrl = url.replace(/\.(jpg|jpeg|png)$/i, '.webp');
+      
+      // Remove any size constraints
+      webpUrl = webpUrl.replace(/[bsml]\.webp$/, '.webp');
+      
+      return { source: webpUrl, width, height };
+    }
+    
+    // Clearbit images (used for Hacker News) - get larger, higher quality version
+    if (url.includes('clearbit.com')) {
+      // Their API doesn't support WebP directly, so we return PNG for transparency
+      return { 
+        source: `${url}?size=300&format=png&quality=80`,
+        width: 300,
+        height: 300
+      };
     }
     
     // iTunes/Apple images (for podcasts)
     if (url.includes('mzstatic.com')) {
       // Replace the dimension in the URL with a larger size
-      return url.replace(/\d+x\d+/, '600x600');
+      // Unfortunately Apple doesn't support WebP conversion via URL
+      const newUrl = url.replace(/\d+x\d+/, '1200x1200');
+      return { source: newUrl, width: 1200, height: 1200 };
     }
     
     // For other URLs, return as is
-    return url;
+    return { source: url, width, height };
     
   } catch (error) {
     console.error('Error converting to high-res image:', error, url);
-    return url;
+    return { source: url, width, height };
   }
 }
 
@@ -175,7 +219,9 @@ export async function fetchRandomWikipediaArticle(): Promise<WikipediaArticle> {
         result.title && 
         result.extract && 
         result.extract.length >= 100 &&
-        result.thumbnail // Only check if thumbnail exists, without width filtering
+        result.thumbnail && 
+        result.thumbnail.width >= 300 && // Reduced from 500px to 300px for faster loading
+        result.thumbnail.source // Ensure the source property exists
       );
       
       if (validResults.length > 0) {
@@ -184,13 +230,13 @@ export async function fetchRandomWikipediaArticle(): Promise<WikipediaArticle> {
         console.log(`Found suitable Wikipedia article: ${data.title}`);
         
         // Get high-res version of the thumbnail
-        const highResThumbnail = getHighResImage(data.thumbnail);
+        const highResThumbnail = data.thumbnail?.source ? getHighResImage(data.thumbnail) : null;
         
         return {
           pageid: data.pageid,
           title: data.title,
           extract: data.extract,
-          thumbnail: highResThumbnail,
+          thumbnail: highResThumbnail || data.thumbnail,
           description: data.description,
           source: 'wikipedia' as ContentSource,
           url: data.content_urls?.desktop?.page
@@ -198,27 +244,82 @@ export async function fetchRandomWikipediaArticle(): Promise<WikipediaArticle> {
       }
       
       // If no valid result with image was found from the parallel attempts,
-      // make one more direct fetch with more relaxed criteria
-      const fallbackResponse = await axios.get('https://en.wikipedia.org/api/rest_v1/page/random/summary', { timeout: 3000 });
-      const fallbackData = fallbackResponse.data;
+      // make another attempt with different criteria
+      console.log('No suitable Wikipedia article found from initial batch, trying again with more fetches');
       
-      // Accept even without thumbnail as last resort
-      return {
-        pageid: fallbackData.pageid,
-        title: fallbackData.title || 'Wikipedia Article',
-        extract: fallbackData.extract || 'No description available',
-        thumbnail: fallbackData.thumbnail ? getHighResImage(fallbackData.thumbnail) : undefined,
-        description: fallbackData.description,
-        source: 'wikipedia' as ContentSource,
-        url: fallbackData.content_urls?.desktop?.page
-      };
+      // Make even more parallel requests to find a good article
+      const secondAttemptPromises = Array(15).fill(null).map(() => 
+        axios.get('https://en.wikipedia.org/api/rest_v1/page/random/summary', { timeout: 4000 })
+          .then(res => res.data)
+          .catch(() => null)
+      );
+      
+      const secondResults = await Promise.all(secondAttemptPromises);
+      const secondValidResults = secondResults.filter(result => 
+        result !== null && 
+        result.title && 
+        result.extract && 
+        result.extract.length >= 100 &&
+        result.thumbnail && 
+        result.thumbnail.width >= 300 && // Reduced from 500px to 300px for faster loading
+        result.thumbnail.source
+      );
+      
+      if (secondValidResults.length > 0) {
+        const data = secondValidResults[0];
+        console.log(`Found suitable Wikipedia article on second attempt: ${data.title}`);
+        
+        // Get high-res version of the thumbnail
+        const highResThumbnail = data.thumbnail?.source ? getHighResImage(data.thumbnail) : null;
+        
+        return {
+          pageid: data.pageid,
+          title: data.title,
+          extract: data.extract,
+          thumbnail: highResThumbnail || data.thumbnail,
+          description: data.description,
+          source: 'wikipedia' as ContentSource,
+          url: data.content_urls?.desktop?.page
+        };
+      }
+      
+      // If still no valid results, fallback to any article with a thumbnail
+      console.warn('Failed to find 500px+ image article, using any article with an image');
+      
+      const anyImageResult = results.find(result => 
+        result !== null && 
+        result.title && 
+        result.extract && 
+        result.thumbnail && 
+        result.thumbnail.source
+      );
+      
+      if (anyImageResult) {
+        console.log(`Using fallback article: ${anyImageResult.title}`);
+        
+        // Get high-res version of the thumbnail
+        const highResThumbnail = anyImageResult.thumbnail?.source ? getHighResImage(anyImageResult.thumbnail) : null;
+        
+        return {
+          pageid: anyImageResult.pageid,
+          title: anyImageResult.title,
+          extract: anyImageResult.extract,
+          thumbnail: highResThumbnail || anyImageResult.thumbnail,
+          description: anyImageResult.description,
+          source: 'wikipedia' as ContentSource,
+          url: anyImageResult.content_urls?.desktop?.page
+        };
+      }
+      
+      throw new Error('Could not find any suitable Wikipedia article with an image');
+      
     } catch (error) {
       console.error('Error fetching random Wikipedia article:', error);
       throw error;
     }
   };
   
-  return await getFromCacheOrFetch(cacheKey, fetchFn);
+  return getFromCacheOrFetch(cacheKey, fetchFn);
 }
 
 export async function fetchRandomArticles(count: number = 10): Promise<WikipediaArticle[]> {
@@ -278,9 +379,13 @@ export async function fetchArticlesBySearch(searchTerm: string): Promise<Wikiped
             const response = await axios.get(`https://en.wikipedia.org/api/rest_v1/page/summary/${titleParam}`);
             const data = response.data;
             
-            // Only require the article to have any thumbnail, no width check
-            // Plus a good extract and title
-            if (!data.thumbnail || !data.extract || data.extract.length < 100 || !data.title) {
+            // Apply the same strict 500px+ image quality requirement as random articles
+            if (!data.thumbnail || 
+                !data.extract || 
+                data.extract.length < 100 || 
+                !data.title ||
+                !data.thumbnail.width ||
+                data.thumbnail.width < 300) {
               return null;
             }
             
@@ -324,10 +429,10 @@ export async function fetchArticlesBySearch(searchTerm: string): Promise<Wikiped
       return processedArticles;
     };
     
-    return await getFromCacheOrFetch(cacheKey, fetchFn);
+    return getFromCacheOrFetch(cacheKey, fetchFn);
   } catch (error) {
     console.error('Error in fetchArticlesBySearch:', error);
-    throw error;
+    return [];
   }
 }
 
@@ -390,221 +495,94 @@ export async function fetchOnThisDayEvents(count: number = 5): Promise<Wikipedia
 
 // ========== HACKER NEWS API ==========
 export async function fetchHackerNewsStories(count: number = 5): Promise<WikipediaArticle[]> {
-  const cacheKey = 'hackernews_top';
+  const cacheKey = `hackernews_stories_${count}`;
   
   const fetchFn = async () => {
     try {
-      console.log("Fetching HackerNews stories, requested count:", count);
+      console.log('Fetching Hacker News stories');
       
-      // Since HN stories don't have images by default, we'll need to fetch more
-      // and then filter for those with images from the article content
-      const topStoriesEndpoints = [
-        'https://hacker-news.firebaseio.com/v0/topstories.json',
-        'https://hacker-news.firebaseio.com/v0/beststories.json',
-        'https://hacker-news.firebaseio.com/v0/newstories.json'
-      ];
+      // Always fetch from real API, no fallback to mock data
+      const response = await axios.get('https://hacker-news.firebaseio.com/v0/topstories.json', { timeout: 3000 });
+      const storyIds = response.data.slice(0, count * 3); // Fetch more stories than needed to filter good ones
       
-      // Try multiple endpoints in order until one succeeds
-      let storyIds: number[] = [];
-      let storiesResponse = null;
+      const storyPromises = storyIds.map(async (id: number) => {
+        try {
+          const storyResponse = await axios.get(`https://hacker-news.firebaseio.com/v0/item/${id}.json`, { timeout: 3000 });
+          return storyResponse.data;
+        } catch (error) {
+          console.error(`Error fetching Hacker News story ${id}:`, error);
+          return null;
+        }
+      });
       
-      // Try to fetch from all endpoints concurrently
-      const endpointPromises = topStoriesEndpoints.map(endpoint => 
-        axios.get(endpoint, { timeout: 4000 })
-          .then(response => ({ 
-            success: true, 
-            data: response.data, 
-            endpoint 
-          }))
-          .catch(err => ({ 
-            success: false, 
-            endpoint 
-          }))
+      const stories = await Promise.all(storyPromises);
+      const validStories = stories.filter(story => 
+        story && 
+        story.title && 
+        story.url && 
+        !story.url.includes('pdf') // Skip PDF links
       );
       
-      const endpointResults = await Promise.all(endpointPromises);
-      const successfulFetch = endpointResults.find(result => 
-        result.success && 
-        result.hasOwnProperty('data') && 
-        Array.isArray((result as any).data) && 
-        (result as any).data.length > 0
-      );
+      const limitedStories = validStories.slice(0, count);
       
-      if (successfulFetch) {
-        storyIds = (successfulFetch as any).data.slice(0, count * 10); // Fetch more to ensure we get enough with images
-        console.log(`Successfully fetched ${storyIds.length} HackerNews story IDs from ${successfulFetch.endpoint}`);
-      } else {
-        console.error("Failed to fetch any HackerNews story IDs from all endpoints");
-        // Return mock data with images as fallback
-        return createMockHackerNewsStories(count);
-      }
-      
-      // Batch the story IDs to avoid overwhelming the API
-      const batchSize = 20;
-      const batches = [];
-      for (let i = 0; i < storyIds.length; i += batchSize) {
-        batches.push(storyIds.slice(i, i + batchSize));
-      }
-      
-      let validStories: WikipediaArticle[] = [];
-      
-      // Process each batch in sequence
-      for (const batch of batches) {
-        // Fetch details for each story in parallel with timeouts
-        const batchPromises = batch.map(async (id: number) => {
+      // Convert to WikipediaArticle format
+      const articlesWithNulls = await Promise.all(
+        limitedStories.map(async (story) => {
           try {
-            const response = await axios.get(`https://hacker-news.firebaseio.com/v0/item/${id}.json`, 
-                                        { timeout: 3000 });
-            const story = response.data;
+            // Extract domain from URL
+            const urlObj = new URL(story.url);
+            const domain = urlObj.hostname.replace('www.', '');
             
-            // Skip jobs, polls, etc. or any story without needed data
-            if (!story || !story.title || !story.url) {
-              return null;
-            }
+            // Use higher quality image source
+            // Get favicon from the website directly, with fallback to Clearbit
+            const imageUrl = `https://logo.clearbit.com/${domain}?size=500&format=png`;
             
-            // Try to fetch the article page to extract metadata including images
-            try {
-              const pageResponse = await axios.get(`https://api.microlink.io?url=${encodeURIComponent(story.url)}&screenshot=true`, { 
-                timeout: 4000 
-              });
-              
-              const metadata = pageResponse.data.data;
-              
-              // Strict image filtering - only use stories where we can extract an image
-              if (!metadata.image || !metadata.image.url) {
-                return null;
+            // Attempt to get a screenshot of the website as an alternative high-quality image
+            // This should be cached by the service to avoid high load
+            const screenshotUrl = `https://api.microlink.io/?url=${encodeURIComponent(story.url)}&screenshot=true&meta=false&embed=screenshot.url`;
+            
+            // Get a brief description of the story content if available
+            let extract = story.text || `Article from ${domain}. Click to read more.`;
+            if (extract.length > 500) {
+              extract = extract.substring(0, 500) + '...';
               }
               
               return {
                 pageid: story.id,
                 title: story.title,
-                extract: story.text || metadata.description || `${story.score} points | ${story.descendants || 0} comments`,
+              extract: extract,
+              description: `Posted on Hacker News - ${domain}`,
+              url: story.url,
+              source: 'hackernews' as ContentSource,
+              labels: ['tech', 'news'],
                 thumbnail: {
-                  source: metadata.image.url,
-                  width: metadata.image.width || 800,
-                  height: metadata.image.height || 600
-                },
-                description: `Posted by ${story.by}`,
-                source: 'hackernews' as ContentSource,
-                url: story.url
-              };
-            } catch (metaError) {
-              // If we can't fetch metadata, skip this story
-              console.error(`Error fetching metadata for HN story ${id}:`, metaError);
-              return null;
-            }
+                source: imageUrl,
+                width: 500, // Increased for higher quality
+                height: 500  // Increased for higher quality
+              },
+              additionalImages: [
+                {
+                  source: screenshotUrl,
+                  isScreenshot: true
+                }
+              ]
+            } as WikipediaArticle;
           } catch (error) {
-            console.error(`Error fetching HN story ${id}:`, error);
+            console.error('Error parsing Hacker News story:', error);
             return null;
           }
-        });
-        
-        const batchResults = await Promise.all(batchPromises);
-        const validBatchStories = batchResults.filter(story => story !== null) as WikipediaArticle[];
-        validStories = [...validStories, ...validBatchStories];
-        
-        // If we have enough valid stories with images, stop processing
-        if (validStories.length >= count) {
-          break;
-        }
-      }
+        })
+      );
       
-      console.log(`Successfully fetched ${validStories.length} valid HackerNews stories with images`);
-      
-      if (validStories.length === 0) {
-        return createMockHackerNewsStories(count);
-      }
-      
-      // Apply high-res image optimizations
-      validStories = validStories.map(story => ({
-        ...story,
-        thumbnail: story.thumbnail ? getHighResImage(story.thumbnail) : story.thumbnail
-      }));
-      
-      return validStories.slice(0, count);
+      // Filter out nulls and cast to WikipediaArticle[]
+      return articlesWithNulls.filter((article): article is WikipediaArticle => article !== null);
     } catch (error) {
-      console.error('Error in fetchHackerNewsStories:', error);
-      return createMockHackerNewsStories(count);
+      console.error('Error fetching Hacker News stories:', error);
+      return [];
     }
   };
   
-  return await getFromCacheOrFetch(cacheKey, fetchFn);
-}
-
-// Fallback data for HackerNews in case the API is down
-function createMockHackerNewsStories(count: number): WikipediaArticle[] {
-  console.log("Creating mock HackerNews stories:", count);
-  
-  const mockStories = [
-    {
-      pageid: 36983293,
-      title: "Building a Keyboard from Scratch",
-      extract: "A detailed guide on building a mechanical keyboard from individual components, including PCB design, firmware, and case manufacturing.",
-      url: "https://example.com/keyboard-guide",
-      description: "Posted by keyboard_enthusiast",
-      source: 'hackernews' as ContentSource,
-      thumbnail: {
-        source: "https://images.unsplash.com/photo-1618384887929-16ec33fab9ef?auto=format&fit=crop&w=800&q=80",
-        width: 800,
-        height: 600
-      }
-    },
-    {
-      pageid: 36983294,
-      title: "The Future of Web Browsers",
-      extract: "An analysis of upcoming web standards and how they will impact browser technology in the next five years.",
-      url: "https://example.com/future-browsers",
-      description: "Posted by web_standards",
-      source: 'hackernews' as ContentSource,
-      thumbnail: {
-        source: "https://images.unsplash.com/photo-1544652478-6653e09f18a2?auto=format&fit=crop&w=800&q=80",
-        width: 800,
-        height: 600
-      }
-    },
-    {
-      pageid: 36983295,
-      title: "Machine Learning for Image Recognition: A Comprehensive Guide",
-      extract: "Walkthrough of building an image recognition system from scratch using modern ML techniques.",
-      url: "https://example.com/ml-image-guide",
-      description: "Posted by deeplearning_researcher",
-      source: 'hackernews' as ContentSource,
-      thumbnail: {
-        source: "https://images.unsplash.com/photo-1527474305487-b87b222841cc?auto=format&fit=crop&w=800&q=80",
-        width: 800,
-        height: 600
-      }
-    },
-    {
-      pageid: 36983296,
-      title: "The Principles of Good API Design",
-      extract: "Exploring the key principles behind successful and developer-friendly API design.",
-      url: "https://example.com/api-design",
-      description: "Posted by backend_developer",
-      source: 'hackernews' as ContentSource,
-      thumbnail: {
-        source: "https://images.unsplash.com/photo-1558494949-ef010cbdcc31?auto=format&fit=crop&w=800&q=80",
-        width: 800,
-        height: 600
-      }
-    },
-    {
-      pageid: 36983297,
-      title: "Optimizing Docker Containers for Production",
-      extract: "Best practices for configuring and optimizing Docker containers in high-scale production environments.",
-      url: "https://example.com/docker-optimization",
-      description: "Posted by devops_engineer",
-      source: 'hackernews' as ContentSource,
-      thumbnail: {
-        source: "https://images.unsplash.com/photo-1563986768494-4dee2763ff3f?auto=format&fit=crop&w=800&q=80",
-        width: 800,
-        height: 600
-      }
-    }
-  ];
-  
-  // Return a slice of the mock data up to the requested count
-  return mockStories.slice(0, count);
+  return getFromCacheOrFetch(cacheKey, fetchFn);
 }
 
 // ========== OK.SURF NEWS API ==========
@@ -734,12 +712,33 @@ export async function fetchRedditPosts(count: number = 5): Promise<WikipediaArti
           
           // Extract image - always use the highest resolution available
           const image = data.preview.images[0];
-          const source = image.source;
           
+          // Get the highest resolution image available
+          // Check if there are higher-res versions available
+          let bestImage = image.source;
+          if (image.resolutions && image.resolutions.length > 0) {
+            // Sort resolutions by width to find the highest resolution
+            const sortedResolutions = [...image.resolutions].sort((a, b) => b.width - a.width);
+            if (sortedResolutions[0].width > bestImage.width) {
+              bestImage = sortedResolutions[0];
+            }
+          }
+          
+          // Also check for higher resolution images in variants
+          if (image.variants && image.variants.gif && image.variants.gif.source) {
+            if (image.variants.gif.source.width > bestImage.width) {
+              bestImage = image.variants.gif.source;
+            }
+          }
+          
+          // Clean the URL by removing any HTML entities
+          const cleanUrl = bestImage.url.replace(/&amp;/g, '&');
+          
+          // Create thumbnail object
           const thumbnail = {
-            source: source.url.replace(/&amp;/g, '&'),
-            width: source.width,
-            height: source.height
+            source: cleanUrl,
+            width: bestImage.width,
+            height: bestImage.height
           };
           
           // Extract text content
@@ -751,7 +750,7 @@ export async function fetchRedditPosts(count: number = 5): Promise<WikipediaArti
             pageid: parseInt(data.id, 36),
             title: data.title,
             extract,
-            thumbnail: getHighResImage(thumbnail),
+            thumbnail,
             description: `Posted by u/${data.author} in r/${data.subreddit}`,
             url: `https://www.reddit.com${data.permalink}`,
             source: 'reddit' as ContentSource
@@ -978,7 +977,8 @@ export async function fetchWikipediaArticlesDirectly(query: string, count: numbe
           .filter((article: any) => 
             article.title && 
             (article.extract || article.description) && 
-            article.thumbnail // Only include articles with images
+            article.thumbnail && 
+            article.thumbnail.width >= 300 // Only include articles with images of at least 300px width (reduced from 500px)
           )
           .map((article: any) => {
             // Optimize thumbnail if present
@@ -1024,86 +1024,68 @@ export const fetchMultiSourceArticles = async (
   sourceRequests: Partial<Record<ContentSource, number>>,
   searchQuery?: string
 ): Promise<WikipediaArticle[]> => {
-  const allArticles: WikipediaArticle[] = [];
+  console.log('Fetching multi-source articles:', { sourceRequests, searchQuery });
   
-  // Fetch from each source based on the requests
-  const promises: Promise<any>[] = []; // Change to any to handle different promise return types
+  const sourceFetchFunctions: Record<ContentSource, (count: number) => Promise<WikipediaArticle[]>> = {
+    'wikipedia': (count) => searchQuery 
+      ? fetchWikipediaArticlesDirectly(searchQuery, count)
+      : fetchRandomArticles(count),
+    'onthisday': fetchOnThisDayEvents,
+    'hackernews': fetchHackerNewsStories,
+    'oksurf': fetchOkSurfNews,
+    'reddit': fetchRedditPosts,
+    'wikievents': fetchWikipediaCurrentEvents
+  };
   
-  // Wikipedia - use direct API if a search query is provided, otherwise use random articles
-  if (sourceRequests.wikipedia && sourceRequests.wikipedia > 0) {
-    if (searchQuery) {
-      promises.push(
-        fetchWikipediaArticlesDirectly(searchQuery, sourceRequests.wikipedia)
-          .then(articles => allArticles.push(...articles))
-          .catch(err => console.error('Error fetching Wikipedia articles directly:', err))
-      );
-    } else {
-      promises.push(
-        fetchRandomArticles(sourceRequests.wikipedia)
-          .then(articles => allArticles.push(...articles))
-          .catch(err => console.error('Error fetching Wikipedia articles:', err))
-      );
+  // Create array of fetch promises with source info
+  const fetchPromises: Array<Promise<{ source: ContentSource, articles: WikipediaArticle[] }>> = [];
+  
+  // For each requested source, add a fetch promise
+  Object.entries(sourceRequests).forEach(([source, count]) => {
+    if (count && count > 0) {
+      const typedSource = source as ContentSource;
+      const fetchFunction = sourceFetchFunctions[typedSource];
+      
+      if (fetchFunction) {
+        // Add source information for logging
+        fetchPromises.push(
+          fetchFunction(count).then(articles => ({
+            source: typedSource,
+            articles
+          }))
+        );
+      }
     }
-  }
+  });
   
-  // Wikipedia Current Events Portal
-  if (sourceRequests.wikievents && sourceRequests.wikievents > 0) {
-    promises.push(
-      fetchWikipediaCurrentEvents(sourceRequests.wikievents)
-        .then(articles => allArticles.push(...articles))
-        .catch(err => console.error('Error fetching Wikipedia current events:', err))
-    );
-  }
+  // Wait for all fetch operations to complete
+  const results = await Promise.allSettled(fetchPromises);
   
-  // Reddit
-  if (sourceRequests.reddit && sourceRequests.reddit > 0) {
-    promises.push(
-      fetchRedditPosts(sourceRequests.reddit)
-        .then(articles => allArticles.push(...articles))
-        .catch(err => console.error('Error fetching Reddit posts:', err))
-    );
-  }
+  // Process results and collect articles
+  let allArticles: WikipediaArticle[] = [];
+  const sourceDistribution: Record<string, number> = {};
   
-  // Hacker News (kept for backward compatibility)
-  if (sourceRequests.hackernews && sourceRequests.hackernews > 0) {
-    promises.push(
-      fetchHackerNewsStories(sourceRequests.hackernews)
-        .then(articles => allArticles.push(...articles))
-        .catch(err => console.error('Error fetching Hacker News stories:', err))
-    );
-  }
+  results.forEach(result => {
+    if (result.status === 'fulfilled') {
+      const { source, articles } = result.value;
+      
+      if (articles.length > 0) {
+        // Add source to distribution tracking
+        sourceDistribution[source] = articles.length;
+        
+        // Add to all articles collection
+        allArticles = [...allArticles, ...articles];
+      }
+    } else {
+      console.error(`Error fetching from source:`, result.reason);
+    }
+  });
   
-  // On This Day
-  if (sourceRequests.onthisday && sourceRequests.onthisday > 0) {
-    promises.push(
-      fetchOnThisDayEvents(sourceRequests.onthisday)
-        .then(articles => allArticles.push(...articles))
-        .catch(err => console.error('Error fetching On This Day events:', err))
-    );
-  }
+  // Log the final distribution of sources for verification
+  console.log('Source distribution in results:', sourceDistribution);
   
-  // OK Surf
-  if (sourceRequests.oksurf && sourceRequests.oksurf > 0) {
-    promises.push(
-      fetchOkSurfNews(sourceRequests.oksurf)
-        .then(articles => allArticles.push(...articles))
-        .catch(err => console.error('Error fetching OK Surf news:', err))
-    );
-  }
-  
-  // Wait for all fetches to complete
-  await Promise.all(promises);
-  
-  // Filter out articles without images (except onthisday which naturally doesn't have images)
-  const filteredArticles = allArticles.filter(article => 
-    article.thumbnail?.source || article.source === 'onthisday'
-  );
-  
-  // Apply high resolution image optimization to all articles
-  const optimizedArticles = optimizeArticleImagesArray(filteredArticles);
-  
-  // Shuffle the articles to mix sources
-  return shuffleArray(optimizedArticles);
+  // Shuffle the array to mix content from different sources
+  return shuffleArray(allArticles);
 };
 
 // PodcastIndex.org API Integration
@@ -1508,14 +1490,15 @@ const getBestPodcastImage = (...images: (string | undefined)[]): string => {
   // Apply high-res transformations
   try {
     // iTunes artwork often has dimensions in URL (e.g., 100x100)
-    // Replace with maximum resolution
+    // Replace with maximum resolution and convert to WebP if possible
     if (bestImageUrl.includes('mzstatic.com')) {
-      return bestImageUrl.replace(/\/\d+x\d+/, '/1200x1200');
+      const resizedUrl = bestImageUrl.replace(/\/\d+x\d+/, '/1200x1200');
+      return resizedUrl;
     }
     
-    // Apply the getHighResImage utility for other URLs by creating a dummy thumbnail object
-    const highResResult = getHighResImage({ source: bestImageUrl });
-    return highResResult?.source || bestImageUrl;
+    // Apply the getHighResImage utility for other URLs
+    const highResResult = getHighResImage(bestImageUrl);
+    return highResResult.source;
   } catch (error) {
     console.error('Error getting high-res podcast image:', error);
     return bestImageUrl;
@@ -1526,22 +1509,16 @@ const getBestPodcastImage = (...images: (string | undefined)[]): string => {
 export function optimizeArticleImages(article: WikipediaArticle): WikipediaArticle {
   if (!article) return article;
   
-  // Store original thumbnail before modifications
-  if (article.thumbnail) {
-    article.originalThumbnail = { ...article.thumbnail };
-  }
-  
   // If no thumbnail exists, return article as is
   if (!article.thumbnail || !article.thumbnail.source) {
     return article;
   }
   
   // Get high-res version of the image
-  const highResUrl = getHighResImage(article.thumbnail.source);
+  const optimizedThumbnail = getHighResImage(article.thumbnail);
   
-  if (highResUrl) {
-    article.thumbnail.source = highResUrl;
-  }
+  // Update the article with the optimized thumbnail
+  article.thumbnail = optimizedThumbnail;
   
   return article;
 }

@@ -7,6 +7,8 @@ import parse from 'html-react-parser';
 import DOMPurify from 'dompurify';
 import { AboutModal, LikesModal } from './Modals';
 import useScrollLock from '../hooks/useScrollLock';
+import { useState as useImageState, useEffect as useImageEffect } from 'react';
+import OptimizedImage from './OptimizedImage';
 
 interface FullScreenViewProps {
   articles: WikipediaArticle[];
@@ -881,27 +883,34 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
     // Create an array of articles to preload
     const preloadArticleIndices = [];
     
-    // Next 10 articles (increased from 5)
-    for (let i = 1; i <= 10; i++) {
+    // Next 5 articles (more important)
+    for (let i = 1; i <= 5; i++) {
       const index = currentIndex + i;
       if (index < articles.length) {
-        preloadArticleIndices.push(index);
+        preloadArticleIndices.push({index, priority: 'high'});
       }
     }
     
-    // Previous 3 articles (increased from 2)
-    for (let i = 1; i <= 3; i++) {
+    // Previous 5 articles (less important)
+    for (let i = 1; i <= 5; i++) {
       const index = currentIndex - i;
       if (index >= 0) {
-        preloadArticleIndices.push(index);
+        preloadArticleIndices.push({index, priority: 'medium'});
       }
     }
     
-    // Perform the preloading with priority levels
-    preloadArticleIndices.forEach((index, i) => {
+    // Create a map to track images already loaded to avoid duplicates
+    const preloadedImages = new Map();
+    
+    // Perform the preloading with priority levels and prevent redundant loads
+    preloadArticleIndices.forEach(({index, priority}, i) => {
       const article = articles[index];
       if (article?.thumbnail?.source) {
         const imgUrl = article.thumbnail.source;
+        
+        // Skip if already preloaded
+        if (preloadedImages.has(imgUrl)) return;
+        preloadedImages.set(imgUrl, true);
         
         // Only preload if not already in browser cache
         // Add slight delay for each consecutive image to avoid network contention
@@ -909,27 +918,149 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
           const img = new Image();
           
           // Add loading attributes based on distance from current index
-          if (i < 3) {
-            // First 3 images get higher priority
+          if (priority === 'high') {
+            // Images closer to current get higher priority
             img.setAttribute('importance', 'high');
             img.loading = 'eager';
+            img.fetchPriority = 'high';
           } else {
             img.setAttribute('importance', 'low');
             img.loading = 'lazy';
+            img.fetchPriority = 'low';
           }
+          
+          // Add event handlers before setting src to catch all events
+          img.onload = () => {
+            console.log(`Preloaded image ${imgUrl.substring(0, 30)}... (index: ${index})`);
+          };
+          
+          img.onerror = () => {
+            console.error(`Failed to preload image ${imgUrl.substring(0, 30)}... (index: ${index})`);
+          };
           
           // Set source last to start loading
           img.src = imgUrl;
-          
-          // For debugging
-          img.onload = () => console.log(`Preloaded image ${index - currentIndex} from current`);
-          img.onerror = () => console.error(`Failed to preload image ${index - currentIndex} from current`);
-        }, i * 100); // Stagger loads by 100ms each
+        }, i * 50); // Stagger loads for better performance
       }
     });
   }, [currentIndex, articles]);
   
-  // Update loading state to match the podcast loading style
+  // Safe truncation function for both client and server environments
+  const truncateToWords = (text: string, maxWords: number): string => {
+    if (!text) return '';
+    const words = text.split(/\s+/);
+    if (words.length <= maxWords) return text;
+    return words.slice(0, maxWords).join(' ') + '...';
+  };
+
+  // Truncate HTML content to exactly 3 lines for all descriptions
+  const truncateHtmlSafely = (html: string, maxWords: number): string => {
+    if (!html) return '';
+    
+    // Remove any existing HTML tags to get plain text
+    const plainText = html.replace(/<[^>]*>/g, '');
+    
+    // No need to truncate if it's already short
+    if (plainText.split(/\s+/).length <= maxWords) {
+      return html;
+    }
+    
+    // Truncate to specified number of words and add ellipsis
+    const words = plainText.split(/\s+/).slice(0, maxWords);
+    return `${words.join(' ')}...`;
+  };
+  
+  // Apply smooth scrolling globally
+  useEffect(() => {
+    // Add smooth scrolling to html element
+    document.documentElement.style.scrollBehavior = 'smooth';
+    
+    // Clean up when component unmounts
+    return () => {
+      document.documentElement.style.scrollBehavior = '';
+    };
+  }, []);
+  
+  // Handle keyboard navigation (arrow keys) for desktop
+  useEffect(() => {
+    // Only add keyboard navigation for desktop devices
+    const isDesktop = typeof window !== 'undefined' && window.innerWidth >= 768;
+    
+    if (!isDesktop) return;
+    
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // Only process if not in modal and not navigating
+      if (showAboutModal || showLikesModal || showPodcastModal || isNavigationLocked || isOnCooldown) {
+        return;
+      }
+      
+      // Check if an input element is focused
+      const activeElement = document.activeElement;
+      if (activeElement && 
+          (activeElement.tagName === 'INPUT' || 
+           activeElement.tagName === 'TEXTAREA' || 
+           activeElement.tagName === 'SELECT' || 
+           activeElement.getAttribute('contenteditable') === 'true')) {
+        return; // Don't handle keyboard navigation when a form element is focused
+      }
+      
+      if (event.key === 'ArrowUp') {
+        // Navigate to previous article (like scrolling up)
+        event.preventDefault();
+        if (currentIndex > 0) {
+          setIsNavigationLocked(true);
+          setIsOnCooldown(true);
+          setSwipeDirection('down');
+          setCurrentIndex(prev => prev - 1);
+          
+          // Reset navigation lock after animation completes
+          setTimeout(() => {
+            setIsNavigationLocked(false);
+            setIsOnCooldown(false);
+          }, 1200);
+        }
+      } else if (event.key === 'ArrowDown') {
+        // Navigate to next article (like scrolling down)
+        event.preventDefault();
+        if (currentIndex < articles.length - 1) {
+          setIsNavigationLocked(true);
+          setIsOnCooldown(true);
+          setSwipeDirection('up');
+          setCurrentIndex(prev => prev + 1);
+          
+          // Load more articles when getting close to the end
+          if (currentIndex >= articles.length - 5) {
+            loadMoreArticlesInBackground(10);
+          }
+          
+          // Reset navigation lock after animation completes
+          setTimeout(() => {
+            setIsNavigationLocked(false);
+            setIsOnCooldown(false);
+          }, 1200);
+        }
+      }
+    };
+    
+    // Add keyboard event listener
+    window.addEventListener('keydown', handleKeyDown);
+    
+    // Clean up event listener
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [
+    currentIndex, 
+    articles.length, 
+    isNavigationLocked, 
+    isOnCooldown, 
+    showAboutModal, 
+    showLikesModal, 
+    showPodcastModal,
+    loadMoreArticlesInBackground
+  ]);
+  
+  // Update the loading state to match the podcast loading style
   if (isLoading && articles.length === 0) {
     return (
       <div className="h-full w-full overflow-hidden bg-black text-white">
@@ -1129,40 +1260,17 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
             >
               {/* Single image or gradient background */}
               {currentArticle.thumbnail ? (
-                <div className="absolute inset-0">
-                  <div 
-                    className="w-full h-full bg-cover bg-center"
-                    style={{ 
-                      backgroundImage: `url(${currentArticle.thumbnail.source})`,
-                      backgroundColor: 'rgba(0, 0, 0, 0.3)'
-                    }}
-                  >
-                    <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-black/30 opacity-70"></div>
-                  </div>
-                </div>
+                <OptimizedImage
+                  src={currentArticle.thumbnail.source}
+                  alt={currentArticle.title}
+                  className="absolute inset-0 w-full h-full object-cover rounded-t-2xl"
+                  priority={true}
+                />
               ) : (
-                // Fallback for articles without images
                 <div 
-                  className="absolute inset-0 w-full h-full"
-                  style={{ 
-                    background: getArticleBackground(currentArticle) || 'linear-gradient(135deg, #1a202c, #2d3748)'
-                  }}
-                >
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    {currentArticle.source === 'onthisday' && (
-                      <span className="text-6xl opacity-90 drop-shadow-lg">⏳</span>
-                    )}
-                    {currentArticle.source === 'hackernews' && (
-                      <span className="text-6xl opacity-90 drop-shadow-lg">💻</span>
-                    )}
-                    {currentArticle.source === 'oksurf' && (
-                      <span className="text-6xl opacity-90 drop-shadow-lg">📰</span>
-                    )}
-                    {(!currentArticle.source || currentArticle.source === 'wikipedia') && (
-                      <span className="text-6xl opacity-90 drop-shadow-lg">📚</span>
-                    )}
-                  </div>
-                </div>
+                  className="absolute inset-0 w-full h-full rounded-t-2xl" 
+                  style={{ background: getArticleBackground(currentArticle) }}
+                />
               )}
               
               {/* Overlay gradient for better text readability */}
@@ -1255,18 +1363,22 @@ const FullScreenView: React.FC<FullScreenViewProps> = ({
                   {currentArticle.title}
                 </h2>
                 
-                {/* Description - Added margin top to create space */}
+                {/* Description - Added margin top to create space and limit to 3 lines and 100 words */}
                 {currentArticle.description && currentArticle.source !== 'hackernews' && (
-                  <p className="text-white/80 italic font-space mb-3 mt-2">
-                    {currentArticle.description}
+                  <p className="text-white/80 italic font-space mb-3 mt-2 overflow-hidden line-clamp-3 text-ellipsis">
+                    {truncateToWords(currentArticle.description, 100)}
                   </p>
                 )}
                 
                 {/* Extract */}
                 {currentArticle.extract && (
                   <div 
-                    className="article-extract mt-3"
-                    dangerouslySetInnerHTML={{ __html: currentArticle.extract }}
+                    className="article-extract mt-3 line-clamp-4 overflow-hidden"
+                    dangerouslySetInnerHTML={{ 
+                      __html: currentArticle.extract_html 
+                        ? truncateHtmlSafely(currentArticle.extract_html, 150) 
+                        : truncateToWords(currentArticle.extract, 150) 
+                    }}
                   />
                 )}
                 

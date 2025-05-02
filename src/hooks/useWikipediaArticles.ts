@@ -17,17 +17,17 @@ import {
 } from '../utils/storage';
 
 // Batching configuration
-const REFRESH_INTERVAL = 2 * 60 * 60 * 1000; // Refresh every 2 hours
-const BATCH_SIZE = 30; // Increased from 20 to 30 for better infinite scroll
-const MAX_CACHED_ARTICLES = 150; // Increased from 100 to ensure we have enough articles cached
+const REFRESH_INTERVAL = 30 * 60 * 1000; // Refresh every 30 minutes (reduced from 2 hours)
+const BATCH_SIZE = 50; // Increased from 30 to 50 for better infinite scroll
+const MAX_CACHED_ARTICLES = 200; // Increased from 150 to 200 for more variety
 
 // Source distribution for a balanced content mix
 const SOURCES_CONFIG: Record<ContentSource, { weight: number }> = {
-  'wikipedia': { weight: 40 },    // 40% Wikipedia
+  'wikipedia': { weight: 50 },    // 50% Wikipedia (increased from 40%)
   'wikievents': { weight: 5 },    // 5% Wikipedia Current Events
-  'reddit': { weight: 25 },       // 25% Reddit
+  'reddit': { weight: 20 },       // 20% Reddit (reduced from 25%)
   'onthisday': { weight: 5 },     // 5% On This Day
-  'oksurf': { weight: 15 },       // 15% OK Surf
+  'oksurf': { weight: 10 },       // 10% OK Surf (reduced from 15%)
   'hackernews': { weight: 10 }    // 10% Hacker News
 };
 
@@ -35,6 +35,16 @@ const SOURCES_CONFIG: Record<ContentSource, { weight: number }> = {
 const getRandomInt = (min: number, max: number) => {
   return Math.floor(Math.random() * (max - min + 1)) + min;
 };
+
+// Helper function to shuffle an array
+function shuffleArray<T>(array: T[]): T[] {
+  const newArray = [...array];
+  for (let i = newArray.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [newArray[i], newArray[j]] = [newArray[j], newArray[i]];
+  }
+  return newArray;
+}
 
 // Function to fetch fresh articles using the direct API approach
 const fetchFreshArticles = async (
@@ -48,25 +58,26 @@ const fetchFreshArticles = async (
     // Generate a varied set of search queries if none provided
     const queries = searchQuery ? 
       [searchQuery] : 
-      ['science', 'history', 'technology', 'art', 'nature', 'space', 'culture'];
+      ['science', 'history', 'technology', 'art', 'nature', 'space', 'culture', 
+       'innovation', 'business', 'health', 'education', 'travel'];
     
     // Select a random query if searchQuery not provided
     const query = searchQuery || queries[Math.floor(Math.random() * queries.length)];
     
-    // Default distribution with Wikipedia as the main source
+    // Balanced source distribution with higher article counts per source
     const sourceDistribution: Partial<Record<ContentSource, number>> = {
-      wikipedia: count * 0.5,
-      wikievents: count * 0.1,
-      hackernews: count * 0.1,
-      reddit: count * 0.1,
-      onthisday: count * 0.1,
-      oksurf: count * 0.1
+      wikipedia: Math.ceil(count * 0.5),  // 50% Wikipedia
+      wikievents: Math.ceil(count * 0.05), // 5% Wiki Events
+      hackernews: Math.ceil(count * 0.1),  // 10% Hacker News
+      reddit: Math.ceil(count * 0.2),      // 20% Reddit
+      onthisday: Math.ceil(count * 0.05),  // 5% On This Day
+      oksurf: Math.ceil(count * 0.1)       // 10% OK Surf
     };
     
-    // Fetch the articles using our new direct API approach
+    // Fetch the articles using our direct API approach with increased counts
     const articles = await fetchMultiSourceArticles(sourceDistribution, query);
     
-    // Optimize the images
+    // Optimize the images - convert to WebP
     const optimizedArticles = optimizeArticleImagesArray(articles);
     
     return optimizedArticles;
@@ -91,6 +102,9 @@ export const useWikipediaArticles = (initialCount: number = 10) => {
   const [initialLoadComplete, setInitialLoadComplete] = useState(false);
   const lastRefreshTime = useRef<number>(0);
   const viewedArticleIds = useRef<Set<number>>(new Set());
+  
+  // Keep track of article IDs to prevent duplicates on refresh
+  const seenArticleIds = useRef<Set<number>>(new Set());
   
   // Keep track of distribution across sources
   const [sourceDistribution, setSourceDistribution] = useState<Record<ContentSource, number>>({
@@ -133,131 +147,319 @@ export const useWikipediaArticles = (initialCount: number = 10) => {
   const loadArticlesFromCache = useCallback((): WikipediaArticle[] => {
     return getSavedArticles();
   }, []);
-
-  // Initialize articles on mount
-  useEffect(() => {
-    const initializeArticles = async () => {
-      setLoading(true);
+  
+  // Helper to filter out previously seen articles
+  const filterOutSeenArticles = useCallback((newArticles: WikipediaArticle[], seenIds: Set<number>) => {
+    return newArticles.filter(article => {
+      if (!article.pageid) return false;
       
+      // Check if we've already seen this article
+      if (seenIds.has(article.pageid)) {
+        console.log(`Filtering out duplicate article: ${article.title}`);
+        return false;
+      }
+      
+      // Add to seen set and return true to keep the article
+      seenIds.add(article.pageid);
+      return true;
+    });
+  }, []);
+
+  // Load initial articles
+  useEffect(() => {
+    const loadInitialArticles = async () => {
       try {
-        // Try to load cached articles first
-        let cachedArticles = loadArticlesFromCache();
+        setLoading(true);
+        console.log('Loading initial articles...');
         
-        // Check if we need to refresh the cache
-        const needsRefresh = 
-          cachedArticles.length < initialCount || 
-          !lastRefreshTime.current || 
-          (Date.now() - lastRefreshTime.current > REFRESH_INTERVAL);
+        // Try to load from cache first
+        const cachedArticles = loadArticlesFromCache();
         
-        if (needsRefresh) {
-          // Fetch fresh articles if needed
-          const freshArticles = await fetchFreshArticles(BATCH_SIZE, setLoading);
+        if (cachedArticles.length >= initialCount) {
+          console.log(`Loaded ${cachedArticles.length} articles from cache`);
           
-          if (freshArticles.length > 0) {
-            // Combine fresh articles with existing cache
-            cachedArticles = [...freshArticles, ...cachedArticles];
-            
-            // Limit the cache size
-            if (cachedArticles.length > MAX_CACHED_ARTICLES) {
-              cachedArticles = cachedArticles.slice(0, MAX_CACHED_ARTICLES);
+          // Add all cached article IDs to seen set to avoid duplicates
+          cachedArticles.forEach(article => {
+            if (article.pageid) {
+              seenArticleIds.current.add(article.pageid);
             }
-            
-            // Save updated cache
-            saveArticlesToCache(cachedArticles);
-          }
+          });
+          
+          setArticles(cachedArticles);
+          updateSourceCounts(cachedArticles);
+          setInitialLoadComplete(true);
+          setLoading(false);
+          
+          // Load more content in the background to refresh cache
+          setTimeout(() => {
+            refreshArticles();
+          }, 2000);
+          
+          return;
         }
         
-        // Use cached articles for initial display
-        if (cachedArticles.length > 0) {
-          setArticles(cachedArticles.slice(0, initialCount));
-        } else {
-          // Fallback to direct fetch if cache is empty
-          const directArticles = await fetchFreshArticles(initialCount, setLoading);
-          setArticles(directArticles);
-        }
-      } catch (err) {
-        console.error('Error initializing articles:', err);
+        // Otherwise load from API
+        await refreshArticles();
+      } catch (error) {
+        console.error('Error loading initial articles:', error);
         setError('Failed to load articles. Please try again later.');
-      } finally {
         setLoading(false);
-        setInitialLoadComplete(true);
       }
     };
     
-    initializeArticles();
-  }, [initialCount, fetchFreshArticles, loadArticlesFromCache, saveArticlesToCache]);
+    loadInitialArticles();
+  }, [initialCount, loadArticlesFromCache, updateSourceCounts]);
 
-  // Refresh articles - modify to use seen articles tracking
+  // Refresh articles function - completely replaces current articles
   const refreshArticles = async () => {
-    setLoading(true);
-    setError('');
-    
     try {
-      // Track seen article IDs to avoid repeats
-      const seenArticleIds = new Set<number>();
+      console.log('Refreshing articles...');
       
-      // Add current articles to seen set
-      articles.forEach(article => {
-        seenArticleIds.add(article.pageid);
+      // Track refresh time to prevent excessive refreshes
+      const now = Date.now();
+      if (now - lastRefreshTime.current < 5000) {
+        console.log('Refresh called too frequently, ignoring');
+        return;
+      }
+      lastRefreshTime.current = now;
+      
+      // Generate diverse topics as requested for better quality content
+      const topicsByCategory = {
+        technology: ['technology', 'software', 'artificial intelligence', 'programming', 'gadgets', 'innovation'],
+        politics: ['politics', 'government', 'democracy', 'diplomacy', 'elections'],
+        entertainment: ['films', 'movies', 'music', 'celebrities', 'television', 'streaming'],
+        food: ['cuisine', 'cooking', 'recipes', 'restaurants', 'food culture', 'gastronomy'],
+        travel: ['travel destinations', 'tourism', 'adventure', 'countries', 'landmarks'],
+        science: ['science', 'biology', 'physics', 'astronomy', 'chemistry', 'research'],
+        history: ['history', 'historical events', 'ancient civilizations', 'world war', 'archaeology'],
+        currentEvents: ['current events', 'trending', 'news', 'latest developments']
+      };
+      
+      // Create a flattened list of all topics
+      const allTopics = Object.values(topicsByCategory).flat();
+      
+      // Shuffle all topics
+      const shuffledTopics = [...allTopics].sort(() => Math.random() - 0.5);
+      
+      // Select topics, ensuring at least one from each major category
+      const selectedTopics: string[] = [];
+      
+      // First select one topic from each major category
+      Object.keys(topicsByCategory).forEach(category => {
+        const categoryTopics = topicsByCategory[category as keyof typeof topicsByCategory];
+        // Select a random topic from this category
+        const randomIndex = Math.floor(Math.random() * categoryTopics.length);
+        selectedTopics.push(categoryTopics[randomIndex]);
       });
       
-      // Fetch new articles and filter out any we've already seen
-      const freshArticles = await fetchFreshArticles(30, setLoading);
-      const uniqueArticles = filterOutSeenArticles(freshArticles, seenArticleIds);
+      // Then add more from the shuffled list to reach 10 total
+      const additionalTopics = shuffledTopics.filter(topic => !selectedTopics.includes(topic));
+      selectedTopics.push(...additionalTopics.slice(0, 5));
       
-      // Save to cache and update state with unique articles
-      saveArticlesToCache(uniqueArticles);
-      setArticles(uniqueArticles);
+      // List of inappropriate terms to filter out
+      const inappropriateTerms = [
+        'explicit', 'vulgar', 'pornography', 'xxx', 'adult content',
+        'nsfw', 'nudity', 'erotic', 'sexual', 'obscene'
+      ];
       
-    } catch (error) {
-      console.error('Error refreshing articles:', error);
-      setError('Failed to refresh articles. Please try again.');
+      // Track fetching state
+      setLoading(true);
+      
+      // Balance sources - more Wikipedia, Hacker News, and Reddit
+      // Less On This Day and OK Surf
+      const sourceRequests: Partial<Record<ContentSource, number>> = {
+        wikipedia: 10,
+        wikievents: 2,
+        hackernews: 6,
+        reddit: 6,
+        onthisday: 2,
+        oksurf: 2
+      };
+      
+      // Create an array to hold all the new articles
+      let allNewArticles: WikipediaArticle[] = [];
+      
+      // Fetch articles for selected topics in parallel
+      const topicPromises = selectedTopics.map(topic => 
+        fetchMultiSourceArticles(sourceRequests, topic)
+      );
+      
+      const topicResults = await Promise.all(topicPromises);
+      
+      // Combine all results
+      topicResults.forEach(articles => {
+        allNewArticles = [...allNewArticles, ...articles];
+      });
+      
+      // Filter out inappropriate content
+      allNewArticles = allNewArticles.filter(article => {
+        const content = `${article.title} ${article.extract} ${article.description || ''}`.toLowerCase();
+        
+        // Check if article contains inappropriate terms
+        const hasInappropriateContent = inappropriateTerms.some(term => 
+          content.includes(term.toLowerCase())
+        );
+        
+        return !hasInappropriateContent;
+      });
+      
+      // Filter out articles without valid images or with low-quality content
+      allNewArticles = allNewArticles.filter(article => {
+        // Must have thumbnail and extract
+        if (!article.thumbnail || !article.thumbnail.source || !article.extract) {
+          return false;
+        }
+        
+        // Extract must have meaningful content (not too short)
+        if (article.extract.length < 100) {
+          return false;
+        }
+        
+        return true;
+      });
+      
+      // Shuffle the combined articles
+      allNewArticles = shuffleArray(allNewArticles);
+      
+      // Filter out any duplicates or already seen articles
+      const uniqueArticles = filterOutSeenArticles(allNewArticles, seenArticleIds.current);
+      
+      // Only take the first 24 articles (or however many we have)
+      const finalArticles = uniqueArticles.slice(0, 30); // Increased from 24 to 30 for more variety
+      
+      // Update sources distribution for analytics
+      updateSourceCounts(finalArticles);
+      
+      // Update article state with new articles 
+      setArticles(finalArticles);
+      
+      // Cache the articles for future sessions
+      saveArticlesToCache(finalArticles);
+      
+      console.log(`Refreshed with ${finalArticles.length} new unique articles`);
+      setInitialLoadComplete(true);
+    } catch (err) {
+      console.error('Error refreshing articles:', err);
+      setError('Failed to refresh articles. Please try again later.');
     } finally {
       setLoading(false);
     }
   };
 
-  // Load more articles in the background - modify to check for duplicates
+  // Load more articles in the background
   const loadMoreArticlesInBackground = async (count: number = 10) => {
-    if (isLoadingBackground) return; // Prevent concurrent loads
+    if (isLoadingBackground) return; // Prevent parallel execution
     
+    console.log('Loading more articles in the background...');
     setIsLoadingBackground(true);
     
     try {
-      // Track seen article IDs to avoid repeats
-      const seenArticleIds = new Set<number>();
+      // Select diverse topics to ensure better article quality and variety
+      // Get random topics from each major category
+      const categories = [
+        'technology', 'politics', 'entertainment', 'food', 
+        'travel', 'science', 'history', 'current events'
+      ];
       
-      // Add current articles to seen set
-      articles.forEach(article => {
-        seenArticleIds.add(article.pageid);
+      // Select 3 random categories
+      const selectedCategories = shuffleArray([...categories]).slice(0, 3);
+      
+      // List of inappropriate terms to filter out
+      const inappropriateTerms = [
+        'explicit', 'vulgar', 'pornography', 'xxx', 'adult content',
+        'nsfw', 'nudity', 'erotic', 'sexual', 'obscene'
+      ];
+      
+      // Use a mix of sources to improve content variety
+      const sourceRequests: Partial<Record<ContentSource, number>> = {
+        wikipedia: Math.ceil(count * 0.5),  // 50% Wikipedia
+        reddit: Math.ceil(count * 0.2),     // 20% Reddit
+        hackernews: Math.ceil(count * 0.1), // 10% Hacker News
+        wikievents: Math.ceil(count * 0.05),// 5% Wiki Events
+        onthisday: Math.ceil(count * 0.05), // 5% On This Day
+        oksurf: Math.ceil(count * 0.1)      // 10% OK Surf
+      };
+      
+      // Fetch from multiple sources in parallel with different topics
+      const newArticlesBatches = await Promise.all(
+        selectedCategories.map(category => fetchMultiSourceArticles(sourceRequests, category))
+      );
+      
+      // Flatten and shuffle the batches
+      let newArticles = shuffleArray(newArticlesBatches.flat());
+      
+      // Filter out inappropriate content
+      newArticles = newArticles.filter(article => {
+        const content = `${article.title} ${article.extract} ${article.description || ''}`.toLowerCase();
+        
+        // Check if article contains inappropriate terms
+        const hasInappropriateContent = inappropriateTerms.some(term => 
+          content.includes(term.toLowerCase())
+        );
+        
+        return !hasInappropriateContent;
       });
       
-      // Use a random search query for variety
-      const queries = ['science', 'history', 'technology', 'art', 'nature', 'space', 'culture'];
-      const randomQuery = queries[Math.floor(Math.random() * queries.length)];
+      // Filter out articles without valid images or with low-quality content
+      newArticles = newArticles.filter(article => {
+        // Must have thumbnail and extract
+        if (!article.thumbnail || !article.thumbnail.source || !article.extract) {
+          return false;
+        }
+        
+        // Extract must have meaningful content (not too short)
+        if (article.extract.length < 100) {
+          return false;
+        }
+        
+        return true;
+      });
       
-      // Fetch with the direct API and filter out seen articles
-      const newArticles = await fetchFreshArticles(count + 10, () => {}, randomQuery);
-      const uniqueArticles = filterOutSeenArticles(newArticles, seenArticleIds);
+      // Filter out duplicates using the seenArticleIds set
+      const uniqueArticles = filterOutSeenArticles(newArticles, seenArticleIds.current);
       
-      // Only append if we got unique articles
+      // If we got enough articles, add them to the state
       if (uniqueArticles.length > 0) {
-        setArticles(prev => [...prev, ...uniqueArticles.slice(0, count)]);
+        console.log(`Adding ${uniqueArticles.length} new articles to state`);
         
-        // Update the cache with new combined set
-        saveArticlesToCache([...articles, ...uniqueArticles.slice(0, count)]);
+        // Update articles state with new articles
+        setArticles(prev => [...prev, ...uniqueArticles]);
+        
+        // Cache these articles too
+        saveArticlesToCache(uniqueArticles);
+        
+        // Update source distribution for analytics
+        updateSourceCounts([...articles, ...uniqueArticles]);
       } else {
-        // If all are duplicates, try again with a different query
-        const backupQuery = queries[Math.floor(Math.random() * queries.length)];
-        const backupArticles = await fetchFreshArticles(count + 10, () => {}, backupQuery);
-        const uniqueBackupArticles = filterOutSeenArticles(backupArticles, seenArticleIds);
+        console.log('No new articles found, trying again with different query');
         
-        setArticles(prev => [...prev, ...uniqueBackupArticles.slice(0, count)]);
-        saveArticlesToCache([...articles, ...uniqueBackupArticles.slice(0, count)]);
+        // Try one more time with a different topic
+        const fallbackTopics = ['trending', 'popular', 'interesting', 'facts', 'discoveries'];
+        const randomTopic = fallbackTopics[Math.floor(Math.random() * fallbackTopics.length)];
+        
+        const fallbackArticles = await fetchMultiSourceArticles({
+          wikipedia: count,
+          reddit: Math.ceil(count / 2),
+          hackernews: Math.ceil(count / 2)
+        }, randomTopic);
+        
+        // Filter out duplicates
+        const uniqueFallbackArticles = filterOutSeenArticles(fallbackArticles, seenArticleIds.current);
+        
+        if (uniqueFallbackArticles.length > 0) {
+          console.log(`Adding ${uniqueFallbackArticles.length} new fallback articles`);
+          
+          setArticles(prev => [...prev, ...uniqueFallbackArticles]);
+          saveArticlesToCache(uniqueFallbackArticles);
+          updateSourceCounts([...articles, ...uniqueFallbackArticles]);
+        } else {
+          console.log('Failed to find new articles in fallback attempt');
+        }
       }
     } catch (error) {
-      console.error('Error loading more articles in background:', error);
+      console.error('Error loading more articles:', error);
     } finally {
+      // Reset loading state
       setIsLoadingBackground(false);
     }
   };
@@ -267,6 +469,7 @@ export const useWikipediaArticles = (initialCount: number = 10) => {
     loading,
     error,
     refreshArticles,
-    loadMoreArticlesInBackground
+    loadMoreArticlesInBackground,
+    loadMoreArticles: loadMoreArticlesInBackground
   };
 }; 
